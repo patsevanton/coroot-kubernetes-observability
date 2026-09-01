@@ -43,11 +43,11 @@ Coroot получает профили двумя принципиально р�
 | Изменения в коде | не нужны | Go heap — не нужны; pprof-скрейп и Java — не нужны, но требуют включения |
 
 - **eBPF-профилировщик** (`coroot-node-agent`) непрерывно снимает CPU-стектрейсы всех процессов ноды напрямую из ядра — приложению ничего подключать не нужно, но это всегда только CPU. Механизм такой: `coroot-node-agent` (DaemonSet на каждой ноде) загружает eBPF-программы в ядро и цепляет их к CPU perf-событиям сэмплирования; при каждом срабатывании собирается стектрейс процесса, затем агент в user-space символизирует адреса, ассоциирует стек с конкретным контейнером/подом, обрезает незначимые фреймы (по умолчанию — всё, что меньше 0.25% профиля, флаг `--profiles-prune-fraction`) и отправляет профиль в Coroot.
-- **Языковые профилировщики** работают в user-space и добирают то, чего eBPF не умеет: для **Go** — heap-профиль читается из `/proc/<pid>/mem` без участия приложения, плюс pprof-скрейп добавляет CPU/blocking/mutex; для **Java** — async-profiler динамически подгружается в HotSpot JVM и снимает CPU/alloc/lock.
+- **Языковые профилировщики** работают в user-space и добирают то, чего eBPF не умеет: для **Go** — heap-профиль читается из `/proc/<pid>/mem` без участия приложения, плюс pprof-скрейп добавляет CPU/blocking/mutex; для **Java** — async-profiler динамически подгружается в HotSpot JVM и снимает CPU/alloc/lock; для **Python** — eBPF-инструментирование резолвит Python-фреймы через пи-профайлер.
 
 Именно поэтому память и блокировки «появляются» только у Go и Java — это работа user-space профилировщиков, а CPU для всех остальных языков покрывает eBPF.
 
-> Coroot не зависит от облака: дальше показана установка в любой Kubernetes-кластер, а демо-окружение в этом репозитории разворачивается в Yandex Managed Kubernetes через Terraform.
+> Coroot не зависит от облака: дальше показана установка в любой Kubernetes-кластер, а демо-окружение в этом репозитории разворачивается в Yandex Managed Kubernetes через Terraform. На странице приветствия Coroot предлагает создать проект — при развёртывании через coroot-operator проект `default` уже создан автоматически (Prometheus и ClickHouse оператор подключает сам), отдельный ввод URL интеграций не нужен.
 
 ## Часть 1. Разворачиваем Coroot в Kubernetes
 
@@ -56,7 +56,7 @@ Coroot получает профили двумя принципиально р�
 Coroot в кластере состоит из нескольких компонентов, которые разворачивает **coroot-operator**:
 
 - **coroot** — сам сервер (StatefulSet, 1 реплика): UI, API, инспекции, RCA
-- **coroot-node-agent** — DaemonSet на каждой ноде: eBPF CPU-профилировщик, метрики, логи, трейсы
+- **coroot-node-agent** — DaemonSet на каждой ноде: eBPF CPU-профилировщик (плюс Go heap-профайлер и Python-инструментирование), метрики, логи, трейсы
 - **coroot-cluster-agent** — Deployment: кластерная телеметрия + pprof-скрейп Go-приложений
 - **Prometheus** — хранилище метрик (remote-write receiver включён)
 - **ClickHouse** — хранилище логов, трейсов и профилей (+ clickhouse-keeper для координации)
@@ -138,6 +138,7 @@ storage:
 Что здесь важно:
 
 - **Retention ограничен 1 часом** в трёх местах: TTL таблиц ClickHouse (`logsTTL`/`tracesTTL`/`profilesTTL`), метрический кэш (`cacheTTL`) и retention встроенного Prometheus (`prometheus.retention: "1h"`). TTL применяются при создании таблиц; для уже существующих таблиц их нужно поправить через `ALTER TABLE ... MODIFY TTL`.
+- **Нюанс по Prometheus**: данные хранятся двухчасовыми блоками, и блок удаляется только после полного выхода за retention. При `prometheus.retention: "1h"` фактические метрики живут до ~3–4 часов (текущий блок + два предыдущих), плюс Coroot держит рядом собственный метрический кэш (`cacheTTL: "1h"`).
 - **Пароль администратора** живёт только в Kubernetes Secret `coroot-admin-secret`, а в CR передаётся ссылка на него (`authBootstrapAdminPasswordSecret`) — в git и в Helm-release пароля нет.
 - **Keeper — 1 реплика** вместо 3 по умолчанию: для демо-кластера из 3 нод это разумный компромисс (3 реплики keeper'а съели бы всю ноду).
 
@@ -156,7 +157,7 @@ kubectl get pods -n coroot -w
 ```
 NAME                                 READY   STATUS    RESTARTS   AGE
 coroot-coroot-0                      1/1     Running   0          5m
-coroot-clickhouse-0                  1/1     Running   0          5m
+coroot-clickhouse-shard-0-0          1/1     Running   0          5m
 coroot-clickhouse-keeper-0           1/1     Running   0          5m
 coroot-prometheus-xxx-yyy            1/1     Running   0          5m
 coroot-node-agent-abc12              1/1     Running   0          5m
@@ -172,7 +173,7 @@ coroot-operator-xxx-yyy              1/1     Running   0          5m
 open "http://$(terraform output -raw coroot_fqdn)"
 ```
 
-Входим с паролем администратора (`coroot_admin_password`). На первой странице Coroot предложит создать проект — выбираем «Kubernetes» и оставляем всё по умолчанию: оператор уже сконфигурировал Prometheus и ClickHouse.
+Входим с паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
 ## Часть 2. Три «сломанных» приложения
 
@@ -186,7 +187,7 @@ cd apps/golang && docker build -t demo-golang:latest . && cd ../python && docker
 
 ### Демо 1: Nuxt (Node.js) — CPU-bound
 
-Приложение на Nuxt 3 с единственным API-эндпоинтом `/api/cpu`, который считает наивный Фибоначчи (`fib(35)` — ~18 млн рекурсивных вызовов). Экспоненциальная сложность мгновенно видна в CPU-профиле.
+Приложение на Nuxt 3 с единственным API-эндпоинтом `/api/cpu`, который считает наивный Фибоначчи (`fib(35)` — ~30 млн рекурсивных вызовов). Экспоненциальная сложность мгновенно видна в CPU-профиле.
 
 Ключевой момент — **символизация JS-фреймов**. eBPF-профилировщик снимает нативные стектрейсы, но без perf-map названия JS-функций не резолвятся. Node.js умеет генерировать perf-map сам, если запустить его с флагами:
 
@@ -206,7 +207,7 @@ kubectl run -n demo load --image=curlimages/curl --rm -it -- \
 
 ### Демо 2: Python — CPU-bound
 
-Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода.
+Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а пи-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
 ```bash
 kubectl apply -f apps/python/deploy.yaml
@@ -222,7 +223,7 @@ Go-приложение с тремя проблемами сразу:
 - **утечка горутин** — эндпоинт `/leak` запускает горутину, которая блокируется навсегда
 - **CPU-нагрузка** — эндпоинт `/cpu` с бесполезным циклом на 5 млн итераций
 
-Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под:
+Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под:
 
 ```yaml
 template:
@@ -329,7 +330,7 @@ kubectl label ns coroot pod-security.kubernetes.io/enforce=privileged
 ### 2. Во флеймграфе JS/Python видны только анонимные адреса
 
 - Для Node.js — убедитесь, что `NODE_OPTIONS` с perf-map флагами реально применён (см. `kubectl exec ... env | grep NODE_OPTIONS`)
-- Для Python — eBPF-профилировщик работает из коробки; если стектрейсы обрезаны, это нормально для интерпретируемых языков — поможет языковой профилировщик (для Python — `py-spy`, но в Coroot CE он не интегрирован; фокус на CPU-символизации через eBPF)
+- Для Python — имена Python-функций резолвит пи-профайлер node-agent (работает из коробки). Если видны только нативные фреймы `_PyEval_EvalFrameDefault`, проверьте: это CPython (не PyPy), процесс не поломан, а node-agent жив (`kubectl get pods -n coroot | grep node-agent`). `py-spy` для Coroot CE не нужен и не интегрирован.
 
 ### 3. Профили Go не появляются
 
@@ -343,7 +344,7 @@ kubectl label ns coroot pod-security.kubernetes.io/enforce=privileged
 
 ## Безопасность
 
-- **Данные не покидают ваш периметр** — self-hosted, Prometheus и ClickHouse в кластере, usage statistics отключается флагом `--disable-usage-statistics`
+- **Данные не покидают ваш периметр** — self-hosted, Prometheus и ClickHouse в кластере. Coroot по умолчанию отправляет анонимную usage-statistics на `coroot.com`; отключается флагом `--disable-usage-statistics` (в демо-конфигурации этот флаг не выставлен)
 - **Пароль администратора** — только в Kubernetes Secret `coroot-admin-secret` (не в CR, не в git, не в Helm-release)
 - **Ingress** — публичный доступ через ingress-nginx; TLS при необходимости добавляется cert-manager'ом (в этой конфигурации не используется)
 - **Лицензия** — Apache-2.0: бесплатна для коммерческого использования, включая Enterprise-фичи отдельно (SSO, RBAC — платная подписка)
