@@ -1,4 +1,4 @@
-# Coroot: непрерывное профилирование в Yandex Managed K8s — находим узкие места по флеймграфам
+# Coroot: непрерывное профилирование в Kubernetes — находим узкие места по флеймграфам
 
 ## Введение
 
@@ -6,7 +6,7 @@
 
 [Coroot](https://github.com/coroot/coroot) — open-source платформа наблюдаемости (Apache-2.0), которая превращает telemetry-сигналы в actionable insights. Её ключевая особенность — **непрерывное профилирование из коробки**: eBPF-профилировщик снимает CPU-профили всех процессов на ноде без единой строки кода в приложении, а языковые профилировщики (Go, Java) добавляют память и блокировки. Результат — флеймграф до точной строки кода в один клик, плюс предустановленные инспекции, которые автоматически находят типовые проблемы (утечки памяти, лишние аллокации, блокировки).
 
-В этой статье мы развернём Coroot в Yandex Managed Kubernetes через официальный coroot-operator (Community Edition), ограничим хранение данных одним часом, а затем задеплоим три намеренно «сломанных» приложения — на Nuxt (Node.js), Python и Go — и посмотрим, как их проблемы всплывают в профилировании.
+Coroot ставится в любой Kubernetes-кластер — и в managed-сервисы (Yandex Managed Kubernetes, EKS, GKE, AKS), и в self-hosted. В этой статье мы развернём Coroot через официальный coroot-operator (Community Edition), ограничим хранение данных одним часом, а затем задеплоим три намеренно «сломанных» приложения — на Nuxt (Node.js), Python и Go — и посмотрим, как их проблемы всплывают в профилировании.
 
 ## Coroot vs Pyroscope vs Parca vs Datadog Continuous Profiler
 
@@ -47,9 +47,9 @@ Coroot получает профили двумя принципиально р�
 
 Именно поэтому память и блокировки «появляются» только у Go и Java — это работа user-space профилировщиков, а CPU для всех остальных языков покрывает eBPF.
 
-> Предполагается, что у вас уже есть Yandex Managed Kubernetes и настроен `yc` CLI.
+> Coroot не зависит от облака: дальше показана установка в любой Kubernetes-кластер, а демо-окружение в этом репозитории разворачивается в Yandex Managed Kubernetes через Terraform.
 
-## Часть 1. Разворачиваем Coroot в Yandex Managed K8s
+## Часть 1. Разворачиваем Coroot в Kubernetes
 
 ### Архитектура
 
@@ -76,9 +76,9 @@ flowchart LR
     App["demo-приложения"] -->|/debug/pprof| ClusterAgent
 ```
 
-### Шаг 1. Инфраструктура: Terraform
+### Шаг 1. Установка Coroot в кластер
 
-Как и в проекте с OpenObserve, кластер поднимается Terraform'ом. Сеть — 3 приватные подсети (по одной в зоне `ru-central1-b/d/e`), ноды без публичных IP, исходящий трафик через NAT-шлюз.
+Coroot ставится в уже существующий Kubernetes-кластер через Helm — сам по себе он не зависит от конкретного облака. Для демо в этом репозитории инфраструктура поднимается Terraform'ом в **Yandex Managed Kubernetes** (`net.tf`, `ip-dns.tf`, `k8s.tf`, `coroot.tf`): VPC с 3 приватными подсетями (по одной в зоне `ru-central1-b/d/e`), ноды без публичных IP, исходящий трафик через NAT-шлюз.
 
 ```bash
 terraform init
@@ -87,12 +87,14 @@ terraform apply \
   -var="coroot_admin_password=<пароль-админа>"
 ```
 
-Что создаёт Terraform (`net.tf`, `ip-dns.tf`, `k8s.tf`, `coroot.tf`):
+Terraform из репозитория создаёт:
 
 - VPC + 3 приватные подсети + NAT-шлюз + route table
 - Публичный IP для балансировщика ingress-nginx (FQDN `coroot.<ip>.sslip.io` формируется автоматически)
-- Managed K8s (v1.33, 3 ноды 2 vCPU / 4 GB) + ingress-nginx через Helm
+- Yandex Managed K8s (v1.33, 3 ноды 2 vCPU / 4 GB) + ingress-nginx через Helm
 - Helm-релизы `coroot-operator` и `coroot` (coroot-ce) в namespace `coroot`
+
+Если у вас другой кластер (EKS, GKE, AKS, self-hosted) — пропустите Terraform и выполните установку напрямую через Helm в существующий кластер.
 
 ### Шаг 2. Coroot CR и retention 1 час
 
