@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-golang
+  namespace: demo
+  labels:
+    app: demo-golang
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-golang
+  template:
+    metadata:
+      labels:
+        app: demo-golang
+      annotations:
+        # Включаем сбор Go-профилей (CPU, memory, blocking, mutex) через cluster-agent.
+        # /debug/pprof доступен благодаря import _ "net/http/pprof"
+        coroot.com/profile-scrape: "true"
+        coroot.com/profile-port: "8080"
+    spec:
+      containers:
+        - name: demo-golang
+          image: demo-golang:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-golang
+  namespace: demo
+  labels:
+    app: demo-golang
+spec:
+  selector:
+    app: demo-golang
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http

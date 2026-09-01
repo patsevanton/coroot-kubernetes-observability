@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-python
+  namespace: demo
+  labels:
+    app: demo-python
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-python
+  template:
+    metadata:
+      labels:
+        app: demo-python
+    spec:
+      containers:
+        - name: demo-python
+          image: demo-python:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-python
+  namespace: demo
+  labels:
+    app: demo-python
+spec:
+  selector:
+    app: demo-python
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
