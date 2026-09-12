@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: demo-python
-          image: demo-python:latest
+          image: ghcr.io/patsevanton/coroot-kubernetes-observability/python:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

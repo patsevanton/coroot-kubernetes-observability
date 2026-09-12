@@ -1,0 +1,74 @@
+name: Release and Docker
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release-and-docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create Semver Release
+        id: semver
+        uses: huggingface/semver-release-action@v1.1.1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print version and tag
+        run: |
+          echo "Version: ${{ steps.semver.outputs.version }}"
+          echo "Tag:     ${{ steps.semver.outputs.tag }}"
+
+      - name: Login to GHCR
+        if: steps.semver.outputs.tag != ''
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push golang image
+        if: steps.semver.outputs.tag != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/golang
+          file: ./apps/golang/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/golang:${{ steps.semver.outputs.version }}
+
+      - name: Build and push java image
+        if: steps.semver.outputs.tag != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/java
+          file: ./apps/java/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/java:${{ steps.semver.outputs.version }}
+
+      - name: Build and push python image
+        if: steps.semver.outputs.tag != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/python
+          file: ./apps/python/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/python:${{ steps.semver.outputs.version }}
+
+      - name: Build and push nuxt image
+        if: steps.semver.outputs.tag != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: ./apps/nuxt
+          file: ./apps/nuxt/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}/nuxt:${{ steps.semver.outputs.version }}

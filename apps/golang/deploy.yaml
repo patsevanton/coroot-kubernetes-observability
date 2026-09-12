@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: demo-golang
-          image: demo-golang:latest
+          image: ghcr.io/patsevanton/coroot-kubernetes-observability/golang:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

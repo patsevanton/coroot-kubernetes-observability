@@ -204,10 +204,10 @@ open "http://$(terraform output -raw coroot_fqdn)"
 
 Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники и манифесты — в каталоге `apps/`.
 
-Образы собираются локально и загружаются в кластер (`imagePullPolicy: IfNotPresent`, образы `demo-*:latest`). Перед деплоем соберите их (например, через `docker build` + `docker save`/`ctr images import` на нодах, либо свой приватный registry):
+Образы собираются в CI (`.github/workflows/docker.yml`) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), манифесты ссылаются на конкретную версию. Для локальной сборки используйте `docker build` + `docker save`/`ctr images import` на нодах либо свой приватный registry:
 
 ```bash
-cd apps/golang && docker build -t demo-golang:latest . && cd ../python && docker build -t demo-python:latest . && cd ../nuxt && docker build -t demo-nuxt:latest . && cd ../java && docker build -t demo-java:latest .
+cd apps/golang && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/golang:1.0.0 . && cd ../python && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/python:1.0.0 . && cd ../nuxt && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/nuxt:1.0.0 . && cd ../java && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/java:1.0.0 .
 ```
 
 ### Демо 1: Nuxt (Node.js) — CPU-bound

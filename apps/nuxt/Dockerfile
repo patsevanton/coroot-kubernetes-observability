@@ -1,4 +1,4 @@
-// Стадия сборки
+# Стадия сборки
 FROM node:20-slim AS build
 WORKDIR /app
 COPY package.json ./
@@ -8,6 +8,7 @@ COPY server ./server
 RUN npm run build
 
 # Финальный образ
+# node:20-slim поставляется с npm, достаточным для сборки Nuxt 3
 FROM node:20-slim
 WORKDIR /app
 COPY --from=build /app/.output ./.output

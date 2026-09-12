@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: demo-nuxt
-          image: demo-nuxt:latest
+          image: ghcr.io/patsevanton/coroot-kubernetes-observability/nuxt:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000

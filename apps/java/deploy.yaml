@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: demo-java
-          image: demo-java:latest
+          image: ghcr.io/patsevanton/coroot-kubernetes-observability/java:1.0.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
