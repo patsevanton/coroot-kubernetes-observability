@@ -135,12 +135,13 @@ provider "kubernetes" {
   }
 }
 
-# Установка ingress-nginx через Helm
-resource "helm_release" "ingress_nginx" {
-  name             = "ingress-nginx"
-  chart            = "oci://cr.yandex/yc-marketplace/yandex-cloud/ingress-nginx/chart/ingress-nginx"
-  version          = "4.13.0"
-  namespace        = "ingress-nginx"
+# Установка Traefik как ingress-контроллера через Helm
+resource "helm_release" "traefik" {
+  name             = "traefik"
+  chart            = "traefik"
+  repository       = "https://traefik.github.io/charts"
+  version          = "41.4.0"
+  namespace        = "traefik"
   create_namespace = true
 
   depends_on = [
@@ -151,13 +152,13 @@ resource "helm_release" "ingress_nginx" {
 
   values = [
     yamlencode({
-      controller = {
-        replicaCount = 2
-        podDisruptionBudget = {
-          enabled      = true
-          minAvailable = 1
-        }
-        service = {
+      image = {
+        registry   = "ghcr.io"
+        repository = "traefik/traefik"
+      }
+      service = {
+        spec = {
+          type           = "LoadBalancer"
           loadBalancerIP = local.ingress_public_ip
         }
       }
@@ -171,16 +172,16 @@ output "k8s_cluster_credentials_command" {
 }
 
 output "ingress_public_ip" {
-  description = "External ingress-nginx IP"
+  description = "External Traefik IP"
   value       = local.ingress_public_ip
 }
 
 output "coroot_fqdn" {
-  description = "FQDN Coroot (сформирован через sslip.io из публичного IP балансировщика ingress-nginx)"
+  description = "FQDN Coroot (сформирован через sslip.io из публичного IP балансировщика Traefik)"
   value       = local.coroot_fqdn
 }
 
 output "coroot_url" {
-  description = "URL Coroot за ingress-nginx (http, TLS не настроен)"
+  description = "URL Coroot за Traefik (http, TLS не настроен)"
   value       = "http://${local.coroot_fqdn}"
 }

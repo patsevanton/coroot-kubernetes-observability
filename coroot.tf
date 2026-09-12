@@ -27,9 +27,9 @@ locals {
       key  = "admin-password"
     }
 
-    # Доступ к UI через ingress-nginx; домен coroot.<ip>.sslip.io формируется из публичного IP
+    # Доступ к UI через Traefik; домен coroot.<ip>.sslip.io формируется из публичного IP
     ingress = {
-      className = "nginx"
+      className = "traefik"
       host      = local.coroot_fqdn
       path      = "/"
     }
@@ -83,7 +83,7 @@ resource "helm_release" "coroot_operator" {
   create_namespace = true
 
   depends_on = [
-    helm_release.ingress_nginx,
+    helm_release.traefik,
   ]
 }
 

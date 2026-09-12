@@ -1,4 +1,4 @@
-# Создание внешнего IP-адреса в Yandex Cloud для балансировщика ingress-nginx
+# Создание внешнего IP-адреса в Yandex Cloud для балансировщика Traefik
 resource "yandex_vpc_address" "addr" {
   name = "coroot-ingress-pip" # Имя ресурса внешнего IP-адреса
 
@@ -8,7 +8,7 @@ resource "yandex_vpc_address" "addr" {
 }
 
 # Пауза перед удалением публичного IP-адреса при terraform destroy.
-# LoadBalancer, создаваемый cloud-controller-manager через Service ingress-nginx,
+# LoadBalancer, создаваемый cloud-controller-manager через Service Traefik,
 # освобождает адрес не мгновенно после удаления кластера/helm-релиза — без паузы
 # yandex_vpc_address.addr падает с ошибкой "Address in use".
 # Порядок destroy: helm_release -> cluster -> time_sleep (пауза) -> yandex_vpc_address.addr.

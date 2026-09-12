@@ -68,7 +68,7 @@ Coroot в кластере состоит из нескольких компон
 
 ```mermaid
 flowchart LR
-    Browser["Браузер"] -->|HTTPS| Ingress["ingress-nginx"]
+    Browser["Браузер"] -->|HTTPS| Ingress["Traefik"]
     Ingress --> Coroot["Coroot<br/>(UI, API, инспекции)"]
 
     Coroot --> PG[(Prometheus<br/>метрики)]
@@ -95,8 +95,8 @@ terraform apply \
 Terraform из репозитория создаёт:
 
 - VPC + 3 приватные подсети + NAT-шлюз + route table
-- Публичный IP для балансировщика ingress-nginx (FQDN `coroot.<ip>.sslip.io` формируется автоматически)
-- Yandex Managed K8s (v1.33, 3 ноды 2 vCPU / 4 GB) + ingress-nginx через Helm
+- Публичный IP для балансировщика Traefik (FQDN `coroot.<ip>.sslip.io` формируется автоматически)
+- Yandex Managed K8s (v1.33, 3 ноды 2 vCPU / 4 GB) + Traefik через Helm
 - Helm-релизы `coroot-operator` и `coroot` (coroot-ce) в namespace `coroot`
 
 Если у вас другой кластер (EKS, GKE, AKS, self-hosted) — пропустите Terraform и выполните установку напрямую через Helm в существующий кластер.
@@ -119,7 +119,7 @@ authBootstrapAdminPasswordSecret:
   key: admin-password
 
 ingress:
-  className: nginx
+  className: traefik
   host: coroot.<ip>.sslip.io
   path: /
 
@@ -391,7 +391,7 @@ kubectl label ns coroot pod-security.kubernetes.io/enforce=privileged
 
 - **Данные не покидают ваш периметр** — self-hosted, Prometheus и ClickHouse в кластере. Coroot по умолчанию отправляет анонимную usage-statistics на `coroot.com`; отключается флагом `--disable-usage-statistics` (в демо-конфигурации этот флаг не выставлен)
 - **Пароль администратора** — только в Kubernetes Secret `coroot-admin-secret` (не в CR, не в git, не в Helm-release)
-- **Ingress** — публичный доступ через ingress-nginx; TLS при необходимости добавляется cert-manager'ом (в этой конфигурации не используется)
+- **Ingress** — публичный доступ через Traefik; TLS при необходимости добавляется cert-manager'ом (в этой конфигурации не используется)
 
 ## Заключение
 

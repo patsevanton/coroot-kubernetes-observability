@@ -9,7 +9,7 @@ locals {
   subnet_d_zone = yandex_vpc_subnet.coroot-d.zone
   subnet_e_zone = yandex_vpc_subnet.coroot-e.zone
 
-  # Публичный IP балансировщика ingress-nginx. FQDN Coroot формируется через sslip.io
+  # Публичный IP балансировщика Traefik. FQDN Coroot формируется через sslip.io
   # из этого адреса (см. outputs в k8s.tf и coroot.tf).
   ingress_public_ip = yandex_vpc_address.addr.external_ipv4_address[0].address
   coroot_fqdn       = "coroot.${local.ingress_public_ip}.sslip.io"
