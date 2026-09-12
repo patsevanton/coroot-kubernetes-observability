@@ -8,6 +8,9 @@
     "start": "node .output/server/index.mjs"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/instrumentation-http": "^0.222.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
     "nuxt": "^3.13.0"
   }
 }

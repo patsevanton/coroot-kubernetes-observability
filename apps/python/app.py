@@ -1,10 +1,18 @@
 """demo-service — намеренно «проблемное» Python-приложение для демонстрации
-профилирования в Coroot (eBPF CPU-профилирование из коробки, без агентов).
+профилирования и трейсинга в Coroot.
 
 Проблема: CPU-bound обработчик — наивная рекурсия + busy-loop.
+Трейсинг: OpenTelemetry. SDK и экспорт конфигурирует `opentelemetry-instrument`
+(см. Dockerfile) из переменных окружения OTEL_* — endpoint OTLP
+(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT) и имя сервиса (OTEL_SERVICE_NAME) задаются
+в Helm-чарте. Здесь только создаём вложенные spans поверх server-span'ов.
 """
 import math
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from opentelemetry import trace
+
+tracer = trace.get_tracer("demo-python")
 
 
 def naive_fib(n: int) -> int:
@@ -25,21 +33,22 @@ def cpu_burn() -> int:
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/cpu":
-            n = cpu_burn()
-            body = f"burned cpu: {n}\n".encode()
-        elif self.path == "/healthz":
-            body = b"ok\n"
-        else:
-            self.send_response(404)
-            self.end_headers()
-            return
+        with tracer.start_as_current_span(self.path):
+            if self.path == "/cpu":
+                n = cpu_burn()
+                body = f"burned cpu: {n}\n".encode()
+            elif self.path == "/healthz":
+                body = b"ok\n"
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
 
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
     def log_message(self, format, *args):
         pass

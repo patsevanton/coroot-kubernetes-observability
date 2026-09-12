@@ -1,17 +1,31 @@
 // demo-service — намеренно «проблемное» Go-приложение для демонстрации
-// профилирования в Coroot. Содержит:
+// профилирования и трейсинга в Coroot. Содержит:
 //   - утечку памяти: слайс байтов, который растёт без ограничения
 //   - утечку горутин: каждый запрос порождает горутину, которая не завершается
 //   - CPU-нагрузку в обработчике (наивные вычисления)
+//   - экспорт трейсов в Coroot через OpenTelemetry (OTLP)
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"os/signal"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 var (
@@ -22,6 +36,42 @@ var (
 	// bgJobs — «забытые» горутины: каждая создаёт тикер и никогда не останавливается
 	bgJobs sync.WaitGroup
 )
+
+// initTracer настраивает OTLP-экспортер трейсов в Coroot.
+// Endpoint и service.name берутся из переменных окружения
+// (OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_SERVICE_NAME и т.д.).
+func initTracer() *sdktrace.TracerProvider {
+	ctx := context.Background()
+
+	// otlptracehttp.NewClient() читает конфигурацию из env
+	// (OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_EXPORTER_OTLP_TRACES_PROTOCOL и др.)
+	exporter, err := otlptrace.New(ctx, otlptracehttp.NewClient())
+	if err != nil {
+		log.Printf("warning: failed to initialize OTLP trace exporter: %v", err)
+		return sdktrace.NewTracerProvider()
+	}
+
+	// service.name резолвится из OTEL_SERVICE_NAME / OTEL_RESOURCE_ATTRIBUTES
+	res, err := resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+	)
+	if err != nil {
+		log.Printf("warning: failed to build OTel resource: %v", err)
+		res = resource.Default()
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+	return tp
+}
 
 // spawnLeakyGoroutine запускает горутину, которая никогда не завершится.
 func spawnLeakyGoroutine() {
@@ -62,11 +112,24 @@ func cpuHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/leak", leakHandler)
-	http.HandleFunc("/cpu", cpuHandler)
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	tp := initTracer()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tp.Shutdown(ctx)
+	}()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/leak", leakHandler)
+	mux.HandleFunc("/cpu", cpuHandler)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "ok, goroutines=%d\n", runtime.NumGoroutine())
 	})
+
+	// Оборачиваем маршрутизатор в otelhttp — каждый входящий запрос получает server-span
+	// и экспортируется в Coroot как трейс.
+	var handler http.Handler = mux
+	handler = otelhttp.NewHandler(handler, "http-server")
 
 	fmt.Println("demo-service listening on :8080")
 	// background "фоновая" нагрузка, чтобы проблема была видна и без внешних запросов
@@ -77,7 +140,18 @@ func main() {
 		}
 	}()
 
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	// Плавное завершение: flush трейсов при SIGTERM/SIGINT
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+		<-sig
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tp.Shutdown(ctx)
+		os.Exit(0)
+	}()
+
+	if err := http.ListenAndServe(":8080", handler); err != nil {
 		panic(err)
 	}
 }

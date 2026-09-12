@@ -78,6 +78,7 @@ flowchart LR
     ClusterAgent["coroot-cluster-agent<br/>pprof-скрейп"] -->|Go-профили| Coroot
 
     App["demo-приложения"] -->|/debug/pprof| ClusterAgent
+    App -->|OTLP (трейсы)| Coroot
 ```
 
 ### Шаг 1. Установка Coroot в кластер
@@ -215,6 +216,8 @@ env:
 
 С этими флагами во флеймграфе будут реальные имена функций `fib`/`fib`, а не анонимные адреса.
 
+**Трейсы** подключаются через OpenTelemetry: Nitro-плагин `server/plugins/otel.ts` запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — напрямую в Coroot через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в `values.yaml`).
+
 ```bash
 kubectl run -n demo load --image=curlimages/curl --rm -it -- \
   sh -c 'while true; do curl -s http://demo-nuxt:3000/api/cpu > /dev/null; done'
@@ -223,6 +226,8 @@ kubectl run -n demo load --image=curlimages/curl --rm -it -- \
 ### Демо 2: Python — CPU-bound
 
 Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а пи-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
+
+**Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. `apps/python/Dockerfile`), который сам инструментирует `http.server` и экспортирует server-span'ы в Coroot через OTLP. В `app.py` обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`. Зависимости управляются **uv** (`pyproject.toml` + `uv.lock`), сборка образа — на основе официального образа `ghcr.io/astral-sh/uv`.
 
 ```bash
 kubectl run -n demo load-python --image=curlimages/curl --rm -it -- \
@@ -251,6 +256,8 @@ golang:
 ```go
 import _ "net/http/pprof"
 ```
+
+**Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер настраивается в `main.go` из переменных окружения. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot. Обратите внимание: зависимости OpenTelemetry требуют Go **1.25+**, поэтому образ собирается на `golang:1.25-alpine` (см. `apps/golang/Dockerfile` и `go.mod`).
 
 ```bash
 kubectl run -n demo load-go --image=curlimages/curl --rm -it -- \
@@ -281,6 +288,8 @@ nodeAgent:
 ```
 
 Без `-XX:+DebugNonSafepoints` инлайнируемые методы могут вообще не попадать в профиль.
+
+**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: в `apps/java/Dockerfile` jar скачивается и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в Coroot через OTLP.
 
 ```bash
 kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
@@ -314,6 +323,33 @@ kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
 ### Инспекции
 
 Помимо профилей, предустановленные инспекции Coroot автоматически подсветят проблемы: постоянный рост потребления памяти, высокую утилизацию CPU одним подом, отсутствие лимитов и т.д. Инспекции — это и есть «встроенная экспертиза», которая находит типовые проблемы без ручной настройки дашбордов.
+
+### Трейсы
+
+Все четыре демо-приложения инструментированы OpenTelemetry и отправляют трейсы напрямую в Coroot по OTLP over HTTP. Никакого отдельного OpenTelemetry Collector не требуется: Coroot принимает OTLP на сервисе `coroot-coroot:8080` по пути `/v1/traces` (этот же порт принимает и gRPC OTLP на `4317`).
+
+| Приложение | Способ инструментирования | Что в трейсе |
+|---|---|---|
+| Go | ручной SDK: `otelhttp.NewHandler` поверх маршрутизатора | server-span на каждый запрос `/cpu`/`/leak` |
+| Python | автоинструментация `opentelemetry-instrument` (`http.server`) + вложенный span в обработчике | server-span + span `/cpu` |
+| Java | автоинструментация через `-javaagent:opentelemetry-javaagent.jar` | server-span на каждый запрос без изменений кода |
+| Nuxt (Node.js) | `NodeSDK` + `HttpInstrumentation` в Nitro-плагине + вложенный span `fib` | server-span + span `fib` |
+
+Общая схема для всех четырёх языков одинакова: приложение экспортирует OTLP-спаны, Coroot пишет их в ClickHouse (таблица трейсов живёт `tracesTTL: "1h"`) и строит из них Service Map, латентность и drill-down от спана — в логи и профили.
+
+Как это выглядит в UI: выберите приложение → вкладка **Tracing**. Coroot показывает HeatMap распределения запросов по времени, статусам и длительности:
+
+- **Ошибки** — выделите область на графике, и Coroot проанализирует *все* попавшие туда трейсы, найдя конкретные спаны, где ошибка возникла.
+- **Медленные запросы** — в режиме сравнения Coroot подсветит красным операции, которые стали занимать больше времени, чем раньше; это удобно для ловли регрессий после релиза.
+- **Сравнение атрибутов** — Coroot автоматически найдёт, чем запросы из аномалии отличаются от остальных (по любым кастомным атрибутам спанов, без настройки).
+
+Связь с профилированием двусторонняя: от аномалии на графике CPU (например, `naive_fib` у `demo-python`) можно провалиться во флеймграф, а из медленного span'а — в связанные логи и профили.
+
+### Отправка алертов
+
+Помимо отображения алертов в UI, Coroot умеет отправлять их наружу. Настройка — в **Project Settings → Integrations**: Slack, Microsoft Teams, PagerDuty, Opsgenie, а также произвольный webhook. Маршрутизация — по [категориям приложений](https://docs.coroot.com/configuration/application-categories#notification-routing): для каждой категории независимо включаются интеграции под три типа событий — **Incidents** (нарушения SLO), **Deployments** и **Alerts** (check-, log-, Kubernetes events- и PromQL-алерты). Например, алерты для категории `production` можно слать в Slack и PagerDuty, а `staging` — только в Slack-канал.
+
+Сами алерты Coroot строит из четырёх источников: встроенные инспекции (check-based), новые паттерны ошибок в логах, предупреждающие Kubernetes-события и кастомные PromQL-правила — так что для наших «сломанных» приложений уведомления появятся без единого правила вручную (утечка памяти, высокая утилизация CPU и т.д.).
 
 ## Ограничение хранения 1 часом
 

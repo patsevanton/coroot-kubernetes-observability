@@ -4,20 +4,29 @@
 # Реестр, из которого тянутся образы приложений.
 imageRegistry: ghcr.io/patsevanton/coroot-kubernetes-observability
 
+# Трейсы уходят напрямую в Coroot (OTLP over HTTP) — сервис coroot-coroot на порту
+# 8080 принимает OTLP по пути /v1/traces. Значения заданы в env каждого приложения ниже.
+
 # --- Демо 1: Nuxt (Node.js), CPU-bound ---
 nuxt:
   enabled: true
   replicaCount: 1
   image:
     repository: nuxt
-    tag: "1.0.0"
+    tag: "1.1.0"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 3000
-  # Символизация JS-фреймов в eBPF CPU-профиле Coroot (perf-map).
   env:
+    # Символизация JS-фреймов в eBPF CPU-профиле Coroot (perf-map).
     NODE_OPTIONS: "--perf-basic-prof-only-functions --interpreted-frames-native-stack"
+    # Трейсы: экспорт OTLP в Coroot (server-span + вложенный span на вычисление).
+    OTEL_SERVICE_NAME: "demo-nuxt"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://coroot-coroot.coroot:8080/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
+    OTEL_METRICS_EXPORTER: "none"
+    OTEL_LOGS_EXPORTER: "none"
   podAnnotations: {}
   resources:
     requests:
@@ -33,12 +42,16 @@ python:
   replicaCount: 1
   image:
     repository: python
-    tag: "1.0.0"
+    tag: "1.1.0"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 8080
-  env: {}
+  env:
+    # Трейсы: opentelemetry-instrument экспортирует OTLP-спаны в Coroot.
+    OTEL_SERVICE_NAME: "demo-python"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://coroot-coroot.coroot:8080/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
   podAnnotations: {}
   resources:
     requests:
@@ -54,12 +67,16 @@ golang:
   replicaCount: 1
   image:
     repository: golang
-    tag: "1.0.1"
+    tag: "1.1.0"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 8080
-  env: {}
+  env:
+    # Трейсы: otelhttp оборачивает маршрутизатор, OTLP-экспорт напрямую в Coroot.
+    OTEL_SERVICE_NAME: "demo-golang"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://coroot-coroot.coroot:8080/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
   # Включаем pprof-скрейп (CPU/blocking/mutex) через cluster-agent.
   # /debug/pprof доступен благодаря import _ "net/http/pprof".
   podAnnotations:
@@ -79,12 +96,18 @@ java:
   replicaCount: 1
   image:
     repository: java
-    tag: "1.0.0"
+    tag: "1.1.0"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
     port: 8080
-  env: {}
+  env:
+    # Трейсы: OTel javaagent (см. apps/java/Dockerfile) экспортирует спаны в Coroot.
+    OTEL_SERVICE_NAME: "demo-java"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://coroot-coroot.coroot:8080/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
+    OTEL_METRICS_EXPORTER: "none"
+    OTEL_LOGS_EXPORTER: "none"
   podAnnotations: {}
   resources:
     requests:

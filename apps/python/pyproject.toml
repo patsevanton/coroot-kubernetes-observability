@@ -1,0 +1,16 @@
+[project]
+name = "demo-python"
+version = "1.1.0"
+description = "Намеренно «проблемное» Python-приложение для демонстрации профилирования и трейсинга в Coroot"
+requires-python = ">=3.12"
+dependencies = [
+    "opentelemetry-api==1.44.0",
+    "opentelemetry-sdk==1.44.0",
+    "opentelemetry-distro==0.65b0",
+    "opentelemetry-exporter-otlp-proto-http==1.44.0",
+    "opentelemetry-instrumentation==0.65b0",
+]
+
+[tool.uv]
+# Приложение, а не библиотека: uv не будет собирать/ставить проект как пакет.
+package = false
