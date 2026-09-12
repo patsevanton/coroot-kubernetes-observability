@@ -54,7 +54,7 @@ golang:
   replicaCount: 1
   image:
     repository: golang
-    tag: "1.0.0"
+    tag: "1.0.1"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
