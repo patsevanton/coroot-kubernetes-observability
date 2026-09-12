@@ -274,6 +274,14 @@ nodeAgent:
       value: "true"
 ```
 
+Так как async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, без дополнительных флагов JIT-код не имеет debug-информации в точках сэмплирования, из-за чего большинство сэмплов во флеймграфе попадает в `[unknown]`. Поэтому приложение запускается с флагами (см. `apps/java/Dockerfile`):
+
+```
+-XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints
+```
+
+Без `-XX:+DebugNonSafepoints` инлайнируемые методы могут вообще не попадать в профиль.
+
 ```bash
 kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
   sh -c 'while true; do curl -s http://demo-java:8080/cpu > /dev/null; curl -s http://demo-java:8080/alloc > /dev/null; curl -s http://demo-java:8080/lock > /dev/null; done'

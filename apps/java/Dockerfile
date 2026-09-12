@@ -9,4 +9,4 @@ FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /app ./
 EXPOSE 8080
-ENTRYPOINT ["java", "-cp", "/app", "DemoJava"]
+ENTRYPOINT ["java", "-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints", "-cp", "/app", "DemoJava"]
