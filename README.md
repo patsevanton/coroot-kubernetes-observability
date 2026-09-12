@@ -51,8 +51,8 @@ Coroot получает профили двумя принципиально р�
 Для развёртывания демо-окружения понадобятся:
 
 - [yc CLI](https://yandex.cloud/ru/docs/cli/) — настроенный и аутентифицированный (`yc init`);
-- [Terraform](https://www.terraform.io/) >= 1.3;
-- [kubectl](https://kubernetes.io/docs/tasks/tools/) и [Helm](https://helm.sh/) >= 3.
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) и [Helm](https://helm.sh/) >= 3;
+- установленный и настроенный Kubernetes-кластер (managed или self-hosted).
 
 ## Часть 1. Разворачиваем Coroot в Kubernetes
 
@@ -83,40 +83,16 @@ flowchart LR
 
 ### Шаг 1. Установка Coroot в кластер
 
-Coroot ставится в уже существующий Kubernetes-кластер через Helm и не зависит от конкретного облака. Для демо в этом репозитории инфраструктура поднимается Terraform'ом в **Yandex Managed Kubernetes** (`net.tf`, `ip-dns.tf`, `k8s.tf`, `coroot.tf`): VPC с 3 приватными подсетями (по одной в зоне `ru-central1-b/d/e`), ноды без публичных IP, исходящий трафик через NAT-шлюз.
+Coroot ставится вручную через Helm. Сначала создаём namespace и Secret с паролем администратора:
 
 ```bash
-terraform init
-terraform apply \
-  -var="folder_id=<ваш-folder-id>" \
-  -var="coroot_admin_password=<пароль-админа>"
+kubectl create namespace coroot
+
+kubectl -n coroot create secret generic coroot-admin-secret \
+  --from-literal=admin-password=<пароль-админа>
 ```
 
-Terraform из репозитория создаёт:
-
-- VPC + 3 приватные подсети + NAT-шлюз + route table
-- Публичный IP для балансировщика Traefik (FQDN `coroot.<ip>.sslip.io` формируется автоматически)
-- Yandex Managed K8s (v1.33, 3 ноды 2 vCPU / 4 GB) + Traefik через Helm
-- Namespace `coroot` и Secret `coroot-admin-secret` с паролем администратора
-- `coroot-values.yaml` — values для Helm-чарта `coroot-ce` (без секретов, только ссылка на Secret)
-
-Сам Coroot в этом демо ставится **вручную через Helm** (Terraform инфраструктуру и секреты готовит, но релизы Coroot не создаёт):
-
-```bash
-# Оператор Coroot (управляет Coroot CR, node-agent, cluster-agent, Prometheus, ClickHouse)
-helm install coroot-operator oci://ghcr.io/coroot/charts/coroot-operator \
-  --version 0.9.10 -n coroot
-
-# Coroot CE: чарт рендерит Coroot CR (spec — из сгенерированного values.yaml)
-helm install coroot oci://ghcr.io/coroot/charts/coroot-ce \
-  --version 0.3.3 -n coroot -f coroot-values.yaml
-```
-
-Если у вас другой кластер (EKS, GKE, AKS, self-hosted) — пропустите Terraform, создайте namespace и Secret с паролем администратора вручную и выполните те же два `helm install` с подготовленным `values.yaml`.
-
-### Шаг 2. Coroot CR и retention 1 час
-
-Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Ключевая часть конфигурации (её Terraform рендерит в `coroot-values.yaml` из `coroot.tf`):
+Затем создаём `coroot-values.yaml`:
 
 ```yaml
 metricsRefreshInterval: "30s"
@@ -159,7 +135,21 @@ nodeAgent:
       value: "true"
 ```
 
-Что здесь важно:
+Устанавливаем оператор и сам Coroot:
+
+```bash
+# Оператор Coroot (управляет Coroot CR, node-agent, cluster-agent, Prometheus, ClickHouse)
+helm install coroot-operator oci://ghcr.io/coroot/charts/coroot-operator \
+  --version 0.9.10 -n coroot
+
+# Coroot CE: чарт рендерит Coroot CR (spec — из coroot-values.yaml)
+helm install coroot oci://ghcr.io/coroot/charts/coroot-ce \
+  --version 0.3.3 -n coroot -f coroot-values.yaml
+```
+
+### Шаг 2. Coroot CR и retention 1 час
+
+Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Что здесь важно:
 
 - **Retention ограничен 1 часом** в трёх местах: TTL таблиц ClickHouse (`logsTTL`/`tracesTTL`/`profilesTTL`), метрический кэш (`cacheTTL`) и retention встроенного Prometheus (`prometheus.retention: "1h"`). TTL применяются при создании таблиц; для уже существующих таблиц их нужно поправить через `ALTER TABLE ... MODIFY TTL`.
 - **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` на node-agent. В отличие от Java-агентов, приложение трогать не нужно: агент сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API.
@@ -170,8 +160,8 @@ nodeAgent:
 ### Шаг 3. Проверяем
 
 ```bash
-# Креды для kubectl
-eval "$(terraform output -raw k8s_cluster_credentials_command)"
+# Переключаем kubectl на контекст вашего кластера
+kubectl config use-context <ваш-кластер>
 
 # Ждём готовности подов
 kubectl get pods -n coroot -w
@@ -195,20 +185,22 @@ coroot-operator-xxx-yyy              1/1     Running   0          5m
 Открываем UI:
 
 ```bash
-open "http://$(terraform output -raw coroot_fqdn)"
+open "http://coroot.<ip>.sslip.io"
 ```
 
 Входим с паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
 ## Часть 2. Четыре «сломанных» приложения
 
-Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники и манифесты — в каталоге `apps/`.
+Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге `apps/`, деплой — Helm-чартом [chart/](chart/).
 
-Образы собираются в CI (`.github/workflows/docker.yml`) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), манифесты ссылаются на конкретную версию. Для локальной сборки используйте `docker build` + `docker save`/`ctr images import` на нодах либо свой приватный registry:
+Образы собираются в CI (`.github/workflows/docker.yml`) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), чарт ссылается на конкретную версию через `imageRegistry` и `image.tag` в `values.yaml`. Все четыре приложения поднимаются одной установкой чарта:
 
 ```bash
-cd apps/golang && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/golang:1.0.0 . && cd ../python && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/python:1.0.0 . && cd ../nuxt && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/nuxt:1.0.0 . && cd ../java && docker build -t ghcr.io/patsevanton/coroot-kubernetes-observability/java:1.0.0 .
+helm install demo ./chart --namespace demo --create-namespace
 ```
+
+При необходимости приложения включаются по отдельности флагами `--set golang.enabled=false`, `--set java.enabled=false` и т.д. — по умолчанию включены все четыре.
 
 ### Демо 1: Nuxt (Node.js) — CPU-bound
 
@@ -225,7 +217,6 @@ env:
 С этими флагами во флеймграфе будут реальные имена функций `fib`/`fib`, а не анонимные адреса.
 
 ```bash
-kubectl apply -f apps/nuxt/deploy.yaml
 kubectl run -n demo load --image=curlimages/curl --rm -it -- \
   sh -c 'while true; do curl -s http://demo-nuxt:3000/api/cpu > /dev/null; done'
 ```
@@ -235,7 +226,6 @@ kubectl run -n demo load --image=curlimages/curl --rm -it -- \
 Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а пи-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
 ```bash
-kubectl apply -f apps/python/deploy.yaml
 kubectl run -n demo load-python --image=curlimages/curl --rm -it -- \
   sh -c 'while true; do curl -s http://demo-python:8080/cpu > /dev/null; done'
 ```
@@ -248,14 +238,13 @@ Go-приложение с тремя проблемами сразу:
 - **утечка горутин** — эндпоинт `/leak` запускает горутину, которая блокируется навсегда
 - **CPU-нагрузка** — эндпоинт `/cpu` с бесполезным циклом на 5 млн итераций
 
-Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под:
+Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под — в чарте это уже сделано через `golang.podAnnotations` в `values.yaml`:
 
 ```yaml
-template:
-  metadata:
-    annotations:
-      coroot.com/profile-scrape: "true"
-      coroot.com/profile-port: "8080"
+golang:
+  podAnnotations:
+    coroot.com/profile-scrape: "true"
+    coroot.com/profile-port: "8080"
 ```
 
 Сам код подключает `net/http/pprof` одной строкой:
@@ -265,7 +254,6 @@ import _ "net/http/pprof"
 ```
 
 ```bash
-kubectl apply -f apps/golang/deploy.yaml
 kubectl run -n demo load-go --image=curlimages/curl --rm -it -- \
   sh -c 'while true; do curl -s http://demo-golang:8080/leak > /dev/null; done'
 ```
@@ -288,7 +276,6 @@ nodeAgent:
 ```
 
 ```bash
-kubectl apply -f apps/java/deploy.yaml
 kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
   sh -c 'while true; do curl -s http://demo-java:8080/cpu > /dev/null; curl -s http://demo-java:8080/alloc > /dev/null; curl -s http://demo-java:8080/lock > /dev/null; done'
 ```
@@ -359,14 +346,6 @@ helm upgrade -n coroot coroot-operator oci://ghcr.io/coroot/charts/coroot-operat
 
 Для продакшена имеет смысл `clickhouse.shards/replicas: 2` и `keeper.replicas: 3` (по умолчанию), а также несколько реплик Coroot (`replicas: 2`), для чего потребуется вынести конфигурацию из SQLite в PostgreSQL (`postgres.*` в CR). В демо-конфигурации всё однократно ради экономии ресурсов.
 
-### Удаление
-
-```bash
-terraform destroy \
-  -var="folder_id=<ваш-folder-id>" \
-  -var="coroot_admin_password=<пароль-админа>"
-```
-
 ## Troubleshooting
 
 ### 1. Node-agent не стартует / CrashLoopBackOff
@@ -397,7 +376,7 @@ kubectl label ns coroot pod-security.kubernetes.io/enforce=privileged
 
 ### 4. Данные «пропадают» быстрее, чем ожидалось
 
-Это ожидаемо: retention ограничен 1 часом. Если нужно хранить дольше — поменяйте `logsTTL`/`tracesTTL`/`profilesTTL`/`cacheTTL`/`prometheus.retention` в `coroot.tf`, сделайте `terraform apply` (перегенерирует `coroot-values.yaml`) и примените values:
+Это ожидаемо: retention ограничен 1 часом. Если нужно хранить дольше — поменяйте `logsTTL`/`tracesTTL`/`profilesTTL`/`cacheTTL`/`prometheus.retention` в values и примените их:
 
 ```bash
 helm upgrade coroot oci://ghcr.io/coroot/charts/coroot-ce \

@@ -1,0 +1,52 @@
+{{- if .Values.python.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-python
+  labels:
+    app: demo-python
+    {{- include "coroot-demo-apps.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.python.replicaCount }}
+  selector:
+    matchLabels:
+      app: demo-python
+  template:
+    metadata:
+      labels:
+        app: demo-python
+      {{- with .Values.python.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        - name: demo-python
+          image: {{ include "coroot-demo-apps.image" (merge (dict "registry" $.Values.imageRegistry) .Values.python.image) | quote }}
+          imagePullPolicy: {{ .Values.python.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.python.service.port }}
+          env:
+            {{- range $k, $v := .Values.python.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.python.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-python
+  labels:
+    app: demo-python
+    {{- include "coroot-demo-apps.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.python.service.type }}
+  selector:
+    app: demo-python
+  ports:
+    - port: {{ .Values.python.service.port }}
+      targetPort: {{ .Values.python.service.port }}
+      name: http
+{{- end }}

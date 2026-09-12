@@ -1,0 +1,52 @@
+{{- if .Values.golang.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-golang
+  labels:
+    app: demo-golang
+    {{- include "coroot-demo-apps.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.golang.replicaCount }}
+  selector:
+    matchLabels:
+      app: demo-golang
+  template:
+    metadata:
+      labels:
+        app: demo-golang
+      {{- with .Values.golang.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        - name: demo-golang
+          image: {{ include "coroot-demo-apps.image" (merge (dict "registry" $.Values.imageRegistry) .Values.golang.image) | quote }}
+          imagePullPolicy: {{ .Values.golang.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.golang.service.port }}
+          env:
+            {{- range $k, $v := .Values.golang.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.golang.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-golang
+  labels:
+    app: demo-golang
+    {{- include "coroot-demo-apps.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.golang.service.type }}
+  selector:
+    app: demo-golang
+  ports:
+    - port: {{ .Values.golang.service.port }}
+      targetPort: {{ .Values.golang.service.port }}
+      name: http
+{{- end }}

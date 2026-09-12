@@ -1,0 +1,52 @@
+{{- if .Values.nuxt.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-nuxt
+  labels:
+    app: demo-nuxt
+    {{- include "coroot-demo-apps.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.nuxt.replicaCount }}
+  selector:
+    matchLabels:
+      app: demo-nuxt
+  template:
+    metadata:
+      labels:
+        app: demo-nuxt
+      {{- with .Values.nuxt.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        - name: demo-nuxt
+          image: {{ include "coroot-demo-apps.image" (merge (dict "registry" $.Values.imageRegistry) .Values.nuxt.image) | quote }}
+          imagePullPolicy: {{ .Values.nuxt.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.nuxt.service.port }}
+          env:
+            {{- range $k, $v := .Values.nuxt.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.nuxt.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-nuxt
+  labels:
+    app: demo-nuxt
+    {{- include "coroot-demo-apps.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.nuxt.service.type }}
+  selector:
+    app: demo-nuxt
+  ports:
+    - port: {{ .Values.nuxt.service.port }}
+      targetPort: {{ .Values.nuxt.service.port }}
+      name: http
+{{- end }}

@@ -1,0 +1,95 @@
+# Публичные значения Helm-чарта демо-приложений для статьи про Coroot.
+# Образы собираются из apps/ и публикуются в GHCR (см. .github/workflows/docker.yml).
+
+# Реестр, из которого тянутся образы приложений.
+imageRegistry: ghcr.io/patsevanton/coroot-kubernetes-observability
+
+# --- Демо 1: Nuxt (Node.js), CPU-bound ---
+nuxt:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: nuxt
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  # Символизация JS-фреймов в eBPF CPU-профиле Coroot (perf-map).
+  env:
+    NODE_OPTIONS: "--perf-basic-prof-only-functions --interpreted-frames-native-stack"
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# --- Демо 2: Python, CPU-bound ---
+python:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: python
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  env: {}
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# --- Демо 3: Go, утечка памяти и горутин ---
+golang:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: golang
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  env: {}
+  # Включаем pprof-скрейп (CPU/blocking/mutex) через cluster-agent.
+  # /debug/pprof доступен благодаря import _ "net/http/pprof".
+  podAnnotations:
+    coroot.com/profile-scrape: "true"
+    coroot.com/profile-port: "8080"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# --- Демо 4: Java, CPU, аллокации и блокировки ---
+java:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: java
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  env: {}
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 768Mi
