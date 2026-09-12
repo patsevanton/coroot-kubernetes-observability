@@ -15,8 +15,10 @@ WORKDIR /app
 COPY --from=build /app ./
 COPY --from=otel /opentelemetry-javaagent.jar /app/opentelemetry-javaagent.jar
 EXPOSE 8080
-# async-profiler: флаги DebugNonSafepoints; трейсы: OTel javaagent (конфигурация из env OTEL_*)
+# async-profiler: флаги DebugNonSafepoints + PreserveFramePointer;
+# трейсы: OTel javaagent (конфигурация из env OTEL_*)
 ENTRYPOINT ["java", \
   "-javaagent:/app/opentelemetry-javaagent.jar", \
   "-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints", \
+  "-XX:+PreserveFramePointer", \
   "-cp", "/app", "DemoJava"]
