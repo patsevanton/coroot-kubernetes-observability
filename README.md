@@ -106,7 +106,7 @@ Terraform из репозитория создаёт:
 Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Ключевая часть конфигурации в `coroot.tf`:
 
 ```yaml
-metricsRefreshInterval: "15s"
+metricsRefreshInterval: "30s"
 
 # Retention: все данные Coroot хранятся не дольше 1 часа
 cacheTTL: "1h"      # TTL метрического кэша Coroot

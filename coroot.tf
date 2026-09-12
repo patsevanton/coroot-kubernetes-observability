@@ -13,7 +13,7 @@ locals {
   #   - cacheTTL — TTL метрического кэша Coroot
   #   - prometheus.retention — retention встроенного Prometheus (метрики)
   coroot_cr = {
-    metricsRefreshInterval = "15s"
+    metricsRefreshInterval = "30s"
 
     # Retention: данные Coroot хранятся не дольше 1 часа
     cacheTTL    = "1h"
@@ -78,7 +78,7 @@ resource "helm_release" "coroot_operator" {
   name             = "coroot-operator"
   repository       = "https://coroot.github.io/helm-charts"
   chart            = "coroot-operator"
-  version          = "0.9.9"
+  version          = "0.9.10"
   namespace        = "coroot"
   create_namespace = true
 
