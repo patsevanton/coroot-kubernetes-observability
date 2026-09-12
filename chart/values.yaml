@@ -42,7 +42,7 @@ python:
   replicaCount: 1
   image:
     repository: python
-    tag: "1.1.0"
+    tag: "1.1.1"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
