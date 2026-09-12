@@ -52,7 +52,6 @@ func cpuBurn() {
 }
 
 func leakHandler(w http.ResponseWriter, r *http.Request) {
-	growLeak()
 	spawnLeakyGoroutine()
 	fmt.Fprintf(w, "leaked: buffer=%d bytes, goroutines=%d\n", len(leakBuf), runtime.NumGoroutine())
 }
@@ -74,7 +73,7 @@ func main() {
 	go func() {
 		for {
 			growLeak()
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(1 * time.Second)
 		}
 	}()
 
