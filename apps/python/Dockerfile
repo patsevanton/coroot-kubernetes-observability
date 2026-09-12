@@ -7,4 +7,4 @@ COPY app.py ./
 # opentelemetry-instrument кладётся в .venv при uv sync
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8080
-CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metrics_exporter", "none", "python", "app.py"]
+CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metrics_exporter", "none", "--logs_exporter", "none", "python", "app.py"]
