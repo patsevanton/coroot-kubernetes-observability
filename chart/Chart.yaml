@@ -2,5 +2,5 @@ apiVersion: v2
 name: coroot-demo-apps
 description: "Четыре демо-приложения для статьи про профилирование в Coroot: Go (утечка памяти и горутин), Python (CPU-bound), Nuxt/Node.js (CPU-bound) и Java (CPU, аллокации, блокировки)."
 type: application
-version: 0.1.0
-appVersion: "1.0.0"
+version: 0.2.0
+appVersion: "1.1.1"
