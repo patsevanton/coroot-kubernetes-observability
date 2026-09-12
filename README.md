@@ -373,21 +373,6 @@ kubectl label ns coroot pod-security.kubernetes.io/enforce=privileged
 - pprof-скрейп (CPU/blocking/mutex) требует аннотаций `coroot.com/profile-scrape: "true"` + `coroot.com/profile-port` на поде и доступного `/debug/pprof`
 - Проверьте, что `coroot-cluster-agent` жив: `kubectl get pods -n coroot`
 
-### 4. Данные «пропадают» быстрее, чем ожидалось
-
-Это ожидаемо: retention ограничен 1 часом. Если нужно хранить дольше — поменяйте `logsTTL`/`tracesTTL`/`profilesTTL`/`cacheTTL`/`prometheus.retention` в values и примените их:
-
-```bash
-helm upgrade coroot oci://ghcr.io/coroot/charts/coroot-ce \
-  --version 0.3.3 -n coroot -f coroot-values.yaml
-```
-
-## Безопасность
-
-- **Данные не покидают ваш периметр** — self-hosted, Prometheus и ClickHouse в кластере. Coroot по умолчанию отправляет анонимную usage-statistics на `coroot.com`; отключается флагом `--disable-usage-statistics` (в демо-конфигурации этот флаг не выставлен)
-- **Пароль администратора** — только в Kubernetes Secret `coroot-admin-secret` (не в CR, не в git, не в Helm-release)
-- **Ingress** — публичный доступ через Traefik; TLS при необходимости добавляется cert-manager'ом (в этой конфигурации не используется)
-
 ## Заключение
 
 Coroot закрывает главный пробел классического мониторинга — вопрос «*почему* медленно». Непрерывное eBPF-профилирование снимает CPU-профили без единой строки кода, языковые профилировщики добавляют память и блокировки, а предустановленные инспекции автоматически находят типовые проблемы. Всё это — с метриками, логами и трейсами в одном UI.
