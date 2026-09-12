@@ -97,13 +97,26 @@ Terraform из репозитория создаёт:
 - VPC + 3 приватные подсети + NAT-шлюз + route table
 - Публичный IP для балансировщика Traefik (FQDN `coroot.<ip>.sslip.io` формируется автоматически)
 - Yandex Managed K8s (v1.33, 3 ноды 2 vCPU / 4 GB) + Traefik через Helm
-- Helm-релизы `coroot-operator` и `coroot` (coroot-ce) в namespace `coroot`
+- Namespace `coroot` и Secret `coroot-admin-secret` с паролем администратора
+- `coroot-values.yaml` — values для Helm-чарта `coroot-ce` (без секретов, только ссылка на Secret)
 
-Если у вас другой кластер (EKS, GKE, AKS, self-hosted) — пропустите Terraform и выполните установку напрямую через Helm в существующий кластер.
+Сам Coroot в этом демо ставится **вручную через Helm** (Terraform инфраструктуру и секреты готовит, но релизы Coroot не создаёт):
+
+```bash
+# Оператор Coroot (управляет Coroot CR, node-agent, cluster-agent, Prometheus, ClickHouse)
+helm install coroot-operator oci://ghcr.io/coroot/charts/coroot-operator \
+  --version 0.9.10 -n coroot
+
+# Coroot CE: чарт рендерит Coroot CR (spec — из сгенерированного values.yaml)
+helm install coroot oci://ghcr.io/coroot/charts/coroot-ce \
+  --version 0.3.3 -n coroot -f coroot-values.yaml
+```
+
+Если у вас другой кластер (EKS, GKE, AKS, self-hosted) — пропустите Terraform, создайте namespace и Secret с паролем администратора вручную и выполните те же два `helm install` с подготовленным `values.yaml`.
 
 ### Шаг 2. Coroot CR и retention 1 час
 
-Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Ключевая часть конфигурации в `coroot.tf`:
+Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Ключевая часть конфигурации (её Terraform рендерит в `coroot-values.yaml` из `coroot.tf`):
 
 ```yaml
 metricsRefreshInterval: "30s"
@@ -339,8 +352,7 @@ ALTER TABLE <db>.profiles MODIFY TTL toDateTime(timestamp) + INTERVAL 1 HOUR;
 Оператор автоматически обновляет компоненты Coroot, пока версии образов не зафиксированы в Coroot CR. Сам оператор обновляется отдельно:
 
 ```bash
-helm repo update coroot
-helm upgrade -n coroot coroot-operator coroot/coroot-operator
+helm upgrade -n coroot coroot-operator oci://ghcr.io/coroot/charts/coroot-operator
 ```
 
 ### Реплики и ClickHouse
@@ -385,7 +397,12 @@ kubectl label ns coroot pod-security.kubernetes.io/enforce=privileged
 
 ### 4. Данные «пропадают» быстрее, чем ожидалось
 
-Это ожидаемо: retention ограничен 1 часом. Если нужно хранить дольше — поменяйте `logsTTL`/`tracesTTL`/`profilesTTL`/`cacheTTL`/`prometheus.retention` в `coroot.tf` и сделайте `terraform apply`.
+Это ожидаемо: retention ограничен 1 часом. Если нужно хранить дольше — поменяйте `logsTTL`/`tracesTTL`/`profilesTTL`/`cacheTTL`/`prometheus.retention` в `coroot.tf`, сделайте `terraform apply` (перегенерирует `coroot-values.yaml`) и примените values:
+
+```bash
+helm upgrade coroot oci://ghcr.io/coroot/charts/coroot-ce \
+  --version 0.3.3 -n coroot -f coroot-values.yaml
+```
 
 ## Безопасность
 
@@ -411,6 +428,6 @@ Coroot закрывает главный пробел классического
 
 - GitHub: [github.com/coroot/coroot](https://github.com/coroot/coroot)
 - Документация: [docs.coroot.com](https://docs.coroot.com/)
-- Helm-чарты: [coroot.github.io/helm-charts](https://coroot.github.io/helm-charts/)
+- Helm-чарты (OCI): [ghcr.io/coroot/charts](https://github.com/coroot/coroot-operator/pkgs/container/charts%2Fcoroot-operator)
 - Operator: [github.com/coroot/coroot-operator](https://github.com/coroot/coroot-operator)
 - Live demo: [demo.coroot.com](https://demo.coroot.com/)

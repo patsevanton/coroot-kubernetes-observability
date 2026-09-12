@@ -73,50 +73,38 @@ locals {
   }
 }
 
-# Установка оператора Coroot (управляет Coroot CR, node-agent, cluster-agent, Prometheus, ClickHouse)
-resource "helm_release" "coroot_operator" {
-  name             = "coroot-operator"
-  repository       = "https://coroot.github.io/helm-charts"
-  chart            = "coroot-operator"
-  version          = "0.9.10"
-  namespace        = "coroot"
-  create_namespace = true
+# Namespace для Coroot. Сам Coroot ставится руками через Helm (см. README),
+# Terraform создаёт namespace, чтобы подготовить Secret с паролем админа.
+resource "kubernetes_namespace" "coroot" {
+  metadata {
+    name = "coroot"
+  }
 
   depends_on = [
     helm_release.traefik,
   ]
 }
 
-# Secret с паролем администратора Coroot. Существует до создания Coroot CR.
+# Secret с паролем администратора Coroot. Существует до установки Coroot CR.
 resource "kubernetes_secret" "coroot_admin" {
   metadata {
     name      = "coroot-admin-secret"
-    namespace = "coroot"
+    namespace = kubernetes_namespace.coroot.metadata[0].name
   }
 
   data = {
     "admin-password" = var.coroot_admin_password
   }
-
-  depends_on = [
-    helm_release.coroot_operator,
-  ]
 }
 
-# Coroot Community Edition: Helm-чарт рендерит Coroot CR (spec — из values)
-resource "helm_release" "coroot" {
-  name       = "coroot"
-  repository = "https://coroot.github.io/helm-charts"
-  chart      = "coroot-ce"
-  version    = "0.3.3"
-  namespace  = "coroot"
-
-  values = [
-    yamlencode(local.coroot_cr)
-  ]
+# values.yaml для ручной установки Coroot CE. Секрета в файле нет — только
+# ссылка на Secret, пароль остаётся в Kubernetes Secret выше.
+# Установка: helm install coroot oci://ghcr.io/coroot/charts/coroot-ce -n coroot -f coroot-values.yaml
+resource "local_file" "coroot_values" {
+  filename = "${path.module}/coroot-values.yaml"
+  content  = yamlencode(local.coroot_cr)
 
   depends_on = [
-    helm_release.coroot_operator,
     kubernetes_secret.coroot_admin,
   ]
 }
