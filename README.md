@@ -6,7 +6,7 @@
 
 [Coroot](https://github.com/coroot/coroot) — open-source observability-платформа, которая превращает метрики, логи и трейсы в конкретные, готовые к действию выводы о том, что чинить. Её ключевая особенность — **непрерывное профилирование из коробки**: eBPF-профилировщик снимает CPU-профили всех процессов на ноде без единой строки кода в приложении, а языковые профилировщики (Go, Java) добавляют память и блокировки. Результат — флеймграф до точной строки кода в один клик, плюс предустановленные инспекции, которые автоматически находят типовые проблемы (утечки памяти, лишние аллокации, блокировки).
 
-Coroot ставится в любой Kubernetes-кластер — и в managed-сервисы (Yandex Managed Kubernetes, EKS, GKE, AKS), и в self-hosted. В этой статье мы развернём Coroot через официальный coroot-operator (Community Edition), ограничим хранение данных одним часом, а затем задеплоим три намеренно «сломанных» приложения — на Nuxt (Node.js), Python и Go — и посмотрим, как их проблемы всплывают в профилировании.
+Coroot ставится в любой Kubernetes-кластер — и в managed-сервисы (Yandex Managed Kubernetes, EKS, GKE, AKS), и в self-hosted. В этой статье мы развернём Coroot через официальный coroot-operator (Community Edition), ограничим хранение данных одним часом, а затем задеплоим четыре намеренно «сломанных» приложения — на Nuxt (Node.js), Python, Go и Java — и посмотрим, как их проблемы всплывают в профилировании.
 
 ## Coroot vs Pyroscope vs Parca vs Datadog Continuous Profiler
 
@@ -61,7 +61,7 @@ Coroot получает профили двумя принципиально р�
 Coroot в кластере состоит из нескольких компонентов, которые разворачивает **coroot-operator**:
 
 - **coroot** — сам сервер (StatefulSet, 1 реплика): UI, API, инспекции, RCA
-- **coroot-node-agent** — DaemonSet на каждой ноде: eBPF CPU-профилировщик (плюс Go heap-профайлер и Python-инструментирование), метрики, логи, трейсы
+- **coroot-node-agent** — DaemonSet на каждой ноде: eBPF CPU-профилировщик (плюс Go heap-профайлер, Python-инструментирование и Java через async-profiler), метрики, логи, трейсы
 - **coroot-cluster-agent** — Deployment: кластерная телеметрия + pprof-скрейп Go-приложений
 - **Prometheus** — хранилище метрик (remote-write receiver включён)
 - **ClickHouse** — хранилище логов, трейсов и профилей (+ clickhouse-keeper для координации)
@@ -138,11 +138,18 @@ prometheus:
 
 storage:
   size: "10Gi"
+
+# Java-профилирование: node-agent динамически подгружает async-profiler в HotSpot JVM
+nodeAgent:
+  env:
+    - name: ENABLE_JAVA_ASYNC_PROFILER
+      value: "true"
 ```
 
 Что здесь важно:
 
 - **Retention ограничен 1 часом** в трёх местах: TTL таблиц ClickHouse (`logsTTL`/`tracesTTL`/`profilesTTL`), метрический кэш (`cacheTTL`) и retention встроенного Prometheus (`prometheus.retention: "1h"`). TTL применяются при создании таблиц; для уже существующих таблиц их нужно поправить через `ALTER TABLE ... MODIFY TTL`.
+- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` на node-agent. В отличие от Java-агентов, приложение трогать не нужно: агент сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API.
 - **Нюанс по Prometheus**: данные хранятся двухчасовыми блоками, и блок удаляется только после полного выхода за retention. При `prometheus.retention: "1h"` фактические метрики живут до ~3–4 часов (текущий блок + два предыдущих), плюс Coroot держит рядом собственный метрический кэш (`cacheTTL: "1h"`).
 - **Пароль администратора** живёт только в Kubernetes Secret `coroot-admin-secret`, а в CR передаётся ссылка на него (`authBootstrapAdminPasswordSecret`) — в git и в Helm-release пароля нет.
 - **Keeper — 1 реплика** вместо 3 по умолчанию: для демо-кластера из 3 нод это разумный компромисс (3 реплики keeper'а съели бы всю ноду).
@@ -180,14 +187,14 @@ open "http://$(terraform output -raw coroot_fqdn)"
 
 Входим с паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
-## Часть 2. Три «сломанных» приложения
+## Часть 2. Четыре «сломанных» приложения
 
-Чтобы продемонстрировать профилирование, задеплоим три приложения с намеренно внесёнными проблемами. Исходники и манифесты — в каталоге `apps/`.
+Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники и манифесты — в каталоге `apps/`.
 
 Образы собираются локально и загружаются в кластер (`imagePullPolicy: IfNotPresent`, образы `demo-*:latest`). Перед деплоем соберите их (например, через `docker build` + `docker save`/`ctr images import` на нодах, либо свой приватный registry):
 
 ```bash
-cd apps/golang && docker build -t demo-golang:latest . && cd ../python && docker build -t demo-python:latest . && cd ../nuxt && docker build -t demo-nuxt:latest .
+cd apps/golang && docker build -t demo-golang:latest . && cd ../python && docker build -t demo-python:latest . && cd ../nuxt && docker build -t demo-nuxt:latest . && cd ../java && docker build -t demo-java:latest .
 ```
 
 ### Демо 1: Nuxt (Node.js) — CPU-bound
@@ -250,6 +257,29 @@ kubectl run -n demo load-go --image=curlimages/curl --rm -it -- \
   sh -c 'while true; do curl -s http://demo-golang:8080/leak > /dev/null; done'
 ```
 
+### Демо 4: Java — CPU, аллокации и блокировки
+
+Java-приложение на встроенном `com.sun.net.httpserver` с тремя эндпоинтами:
+
+- **`/cpu`** — наивный `fib(35)` плюс цикл на 5 млн итераций
+- **`/alloc`** — фоновая аллокация массивов (видна в Memory-профиле как `alloc_space`/`alloc_objects`)
+- **`/lock`** — два потока намеренно конкурируют за один монитор (`synchronized` + `sleep`), создавая Lock-профиль
+
+Java-профилирование в Coroot не требует ни JVM-флагов, ни Java-агентов, ни изменений в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в `coroot.tf`):
+
+```yaml
+nodeAgent:
+  env:
+    - name: ENABLE_JAVA_ASYNC_PROFILER
+      value: "true"
+```
+
+```bash
+kubectl apply -f apps/java/deploy.yaml
+kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
+  sh -c 'while true; do curl -s http://demo-java:8080/cpu > /dev/null; curl -s http://demo-java:8080/alloc > /dev/null; curl -s http://demo-java:8080/lock > /dev/null; done'
+```
+
 ## Часть 3. Что видно в Coroot
 
 ### Флеймграф CPU (Python / Node.js)
@@ -263,6 +293,16 @@ kubectl run -n demo load-go --image=curlimages/curl --rm -it -- \
 У приложения `demo-golang` вкладка **Memory** покажет устойчивый рост `alloc_space`: куча растёт на ~2 MiB/сек за счёт фонового `growLeak`. Флеймграф memory-профиля укажет точное место — `main.growLeak`, где происходит `append` в `leakBuf`.
 
 Горутины-утечки видны косвенно: число горутин растёт (`/healthz` отдаёт `runtime.NumGoroutine()`), а Coroot свяжет это с ростом потребления и деградацией SLO.
+
+### CPU, память и блокировки (Java)
+
+Для `demo-java` Coroot показывает сразу несколько типов профилей из async-profiler:
+
+- **CPU** — почти всё время в `naiveFib` (рекурсия с экспоненциальной сложностью), как и у Python/Node.js, но с нативными Java-фреймами
+- **Memory** — рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`
+- **Lock** — время ожидания монитора (`delay`) и число контеншенов (`contentions`) на `synchronized`-блоке
+
+Рядом с профилями async-profiler экспортирует одноимённые метрики (`container_jvm_alloc_bytes_total`, `container_jvm_lock_contentions_total`, `container_jvm_profiling_status` и др.) — по ним удобно ловить аномалии на графике и проваливаться в флеймграф.
 
 ### Инспекции
 

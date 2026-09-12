@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-java
+  namespace: demo
+  labels:
+    app: demo-java
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-java
+  template:
+    metadata:
+      labels:
+        app: demo-java
+    spec:
+      containers:
+        - name: demo-java
+          image: demo-java:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-java
+  namespace: demo
+  labels:
+    app: demo-java
+spec:
+  selector:
+    app: demo-java
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http

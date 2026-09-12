@@ -55,6 +55,17 @@ locals {
       }
     }
 
+    # Java-профилирование: node-agent динамически подгружает async-profiler
+    # в HotSpot JVM (CPU/alloc/lock) без изменений в приложении и JVM-флагов.
+    nodeAgent = {
+      env = [
+        {
+          name  = "ENABLE_JAVA_ASYNC_PROFILER"
+          value = "true"
+        }
+      ]
+    }
+
     # PVC самого Coroot (кэш метрик)
     storage = {
       size = "10Gi"
