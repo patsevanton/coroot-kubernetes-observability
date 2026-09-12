@@ -13,7 +13,7 @@ nuxt:
   replicaCount: 1
   image:
     repository: nuxt
-    tag: "1.1.0"
+    tag: "1.1.1"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -67,7 +67,7 @@ golang:
   replicaCount: 1
   image:
     repository: golang
-    tag: "1.1.0"
+    tag: "1.1.1"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -96,7 +96,7 @@ java:
   replicaCount: 1
   image:
     repository: java
-    tag: "1.1.0"
+    tag: "1.1.1"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
