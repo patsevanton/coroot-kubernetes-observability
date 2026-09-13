@@ -188,7 +188,7 @@ coroot-operator-xxx-yyy              1/1     Running   0          5m
 
 ### Шаг 1. OpenTelemetry Collector
 
-Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `alternateConfig` чарта `open-telemetry/opentelemetry-collector`, чтобы оставить только HTTP-ресивер трейсов без jaeger/zipkin/prometheus-ресиверов):
+Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `config` чарта `open-telemetry/opentelemetry-collector`, который сливается с дефолтным конфигом: ненужные дефолтные ресиверы jaeger/zipkin/prometheus и pipelines logs/metrics явно обнулены через `null`, остаётся только HTTP-ресивер трейсов):
 
 ```bash
 helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
