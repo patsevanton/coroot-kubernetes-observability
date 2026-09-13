@@ -329,12 +329,6 @@ JVM-флаги для профилирования **не обязательны
 
 В колонке **CPU** на странице приложения Coroot показывает **shortage** — недостаток процессорного времени: сколько времени процессы ждали CPU, но не получали его. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting). Например, delay 500ms/сек означает, что к каждой секунде обработки запросов добавляется 500ms задержки.
 
-Shortage показывает сам факт дефицита, но не его причину — для этого на странице приложения есть три графика:
-
-- **CPU delay** (`container_resources_cpu_delay_seconds_total`) — накопленное время ожидания CPU; индикатор shortage вне зависимости от причины;
-- **Throttled time** (`container_resources_cpu_throttled_seconds_total`) — контейнер упёрся в CPU limit и был приостановлен ядром. Если растёт этот график, нужно поднять `resources.limits.cpu` или оптимизировать код;
-- **Node CPU usage** (`node_resources_cpu_usage_seconds_total`) — если throttling нет, а нода загружена, CPU забирают соседние приложения на той же ноде; если высокий delay без throttling и без нагрузки на ноду — смотрите профиль (кнопка **profile**) на графике CPU usage.
-
 ### Трейсы
 
 Все четыре демо-приложения инструментированы OpenTelemetry и отправляют трейсы по OTLP over HTTP в **OpenTelemetry Collector**, который батчит их и пересылает в Coroot. Коллектор принимает OTLP на сервисе `otel-collector.otel` по порту `4318`, а в Coroot трейсы уходят на внутренний сервис `coroot-coroot.coroot:8080` по пути `/v1/traces`.
