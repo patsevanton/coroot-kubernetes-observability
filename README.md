@@ -203,7 +203,7 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 
 ### Шаг 2. Четыре приложения
 
-Образы собираются в CI ([.github/workflows/docker.yml](.github/workflows/docker.yml)) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), чарт ссылается на конкретную версию через `imageRegistry` и `image.tag` в [chart/values.yaml](chart/values.yaml). Все четыре приложения поднимаются одной установкой чарта:
+Образы собираются в CI ([.github/workflows/docker.yml](.github/workflows/docker.yml)) из исходников в [apps](apps) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), чарт ссылается на конкретную версию через `imageRegistry` и `image.tag` в [chart/values.yaml](chart/values.yaml). Исходники Helm-чарта — в каталоге [chart](chart). Все четыре приложения поднимаются одной установкой чарта:
 
 ```bash
 helm install demo ./chart --namespace demo --create-namespace
