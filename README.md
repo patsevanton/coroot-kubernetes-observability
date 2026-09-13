@@ -78,7 +78,7 @@ flowchart LR
     ClusterAgent["coroot-cluster-agent<br/>pprof-скрейп"] -->|Go-профили| Coroot
 
     App["demo-приложения"] -->|/debug/pprof| ClusterAgent
-    App -->|OTLP (трейсы)| OTel["OpenTelemetry Collector"]
+    App -->|"OTLP (трейсы)"| OTel["OpenTelemetry Collector"]
     OTel -->|OTLP| Coroot
 ```
 
