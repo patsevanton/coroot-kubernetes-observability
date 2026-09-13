@@ -178,9 +178,7 @@ coroot-cluster-agent-xxx-yyy         1/1     Running   0          5m
 coroot-operator-xxx-yyy              1/1     Running   0          5m
 ```
 
-Открываем UI:
-
-Входим с логином `admin` и паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
+В UI входим с логином `admin` и паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
 ## Часть 2. Четыре «сломанных» приложения
 
