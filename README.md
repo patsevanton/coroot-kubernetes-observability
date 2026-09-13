@@ -6,20 +6,20 @@
 
 [Coroot](https://github.com/coroot/coroot) — open-source observability-платформа, которая превращает метрики, логи и трейсы в конкретные, готовые к действию выводы о том, что чинить. Её ключевая особенность — **непрерывное профилирование из коробки**: eBPF-профилировщик снимает CPU-профили всех процессов на ноде без единой строки кода в приложении, а языковые профилировщики (Go, Java) добавляют память и блокировки. Результат — флеймграф до точной строки кода в один клик, плюс предустановленные инспекции, которые автоматически находят типовые проблемы (утечки памяти, лишние аллокации, блокировки).
 
-Coroot ставится в любой Kubernetes-кластер. В этой статье мы развернём Coroot через официальный coroot-operator (Community Edition), ограничим хранение данных одним часом, а затем задеплоим четыре намеренно «сломанных» приложения — на Nuxt (Node.js), Python, Go и Java — и посмотрим, как их проблемы всплывают в профилировании.
+Coroot ставится в любой Kubernetes-кластер. В этой статье мы развернём Coroot через официальный coroot-operator (Community Edition), а затем задеплоим четыре намеренно «сломанных» приложения — на Nuxt (Node.js), Python, Go и Java — и посмотрим, как их проблемы всплывают в профилировании.
 
-## Coroot vs Pyroscope vs Parca vs Datadog vs Elastic vs Pixie vs Perforator
+## Coroot vs Pyroscope vs Parca vs Elastic vs Pixie vs Perforator
 
-| Метрика | Coroot | Grafana Pyroscope | Parca | Datadog | Elastic Universal Profiling | Pixie (New Relic) | Perforator (Yandex) |
-|---------|--------|-------------------|-------|---------|----------------------------|-------------------|---------------------|
-| Профилирование | eBPF CPU + Go (heap/pprof) + Java (async-profiler) | pprof/ebpf-клиенты, языковые агенты | eBPF + pprof | SaaS, eBPF + агенты | eBPF, вся система (ядро + приложение + библиотеки), OTel | eBPF-автоинструментация k8s, CPU-профили | eBPF kernel + userspace, CPU, sPGO/AutoFDO |
-| Нужны ли изменения кода | Нет (eBPF), для Go-памяти/CPU — опционально pprof | Для части языков нужен клиент | Нет (eBPF) | Агент | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
-| Метрики + логи + трейсы | ✅ в одном UI | ❌ (только профили) | ❌ (только профили) | ✅ | ✅ (на базе Elastic Stack) | ⚠️ (eBPF-метрики, полный APM — New Relic) | ❌ (только профили) |
-| Автодиагностика (инспекции) | ✅ 80%+ типовых проблем | ❌ | ❌ | ⚠️ | ⚠️ (AIOps/APM-корреляции) | ⚠️ (готовые PxL-скрипты) | ❌ |
-| SLO-алертинг | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
-| Service Map | ✅ | ❌ | ❌ | ✅ | ✅ (APM) | ⚠️ (по eBPF-трафику) | ❌ |
-| Хранилище профилей | ClickHouse | S3-совместимое | object storage | проприетарное | Elasticsearch | локально в кластере (краткосрочное) | ClickHouse |
-| Self-hosted | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Метрика | Coroot v1.26.0 (Community Edition) | Grafana Pyroscope | Parca | Elastic Universal Profiling | Pixie (New Relic) | Perforator (Yandex) |
+|---------|--------|-------------------|-------|----------------------------|-------------------|---------------------|
+| Профилирование | eBPF CPU + Go (heap/pprof) + Java (async-profiler) | pprof/ebpf-клиенты, языковые агенты | eBPF + pprof | eBPF, вся система (ядро + приложение + библиотеки), OTel | eBPF-автоинструментация k8s, CPU-профили | eBPF kernel + userspace, CPU, sPGO/AutoFDO |
+| Нужны ли изменения кода | Нет (eBPF), для Go-памяти/CPU — опционально pprof | Для части языков нужен клиент | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
+| Метрики + логи + трейсы | ✅ в одном UI | ❌ (только профили) | ❌ (только профили) | ✅ (на базе Elastic Stack) | ⚠️ (eBPF-метрики, полный APM — New Relic) | ❌ (только профили) |
+| Автодиагностика (инспекции) | ✅ 80%+ типовых проблем | ❌ | ❌ | ⚠️ (AIOps/APM-корреляции) | ⚠️ (готовые PxL-скрипты) | ❌ |
+| SLO-алертинг | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Service Map | ✅ | ❌ | ❌ | ✅ (APM) | ⚠️ (по eBPF-трафику) | ❌ |
+| Хранилище профилей | ClickHouse | S3-совместимое | object storage | Elasticsearch | локально в кластере (краткосрочное) | ClickHouse |
+| Self-hosted | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 Дополнительно к уже рассмотренным выделяются три профилировщика с eBPF-сбором: [Elastic Universal Profiling](https://www.elastic.co/observability/universal-profiling) — часть Elastic Observability, умеет профилировать не только приложение, но и ядро со сторонними библиотеками, а профили отдаёт в OpenTelemetry-формате; [Pixie](https://github.com/pixie-io/pixie) (New Relic) — open-source eBPF-автоинструментация для Kubernetes, которая снимает метрики, запросы и CPU-профили без изменений в подах; [Perforator](https://github.com/yandex/perforator) от Yandex — production-ready continuous profiling для больших датацентров (десятки тысяч нод), вдохновлённый Google-Wide Profiling, с размоткой стека без frame pointers/дебаг-символов и генерацией sPGO-профилей для PGO-сборки.
 
@@ -61,7 +61,7 @@ Coroot получает профили двумя принципиально р�
 
 Coroot в кластере состоит из нескольких компонентов, которые разворачивает **coroot-operator**:
 
-- **coroot** — сам сервер (StatefulSet, 1 реплика): UI, API, инспекции, RCA
+- **coroot** — сам сервер (StatefulSet, 1 реплика): UI, API, инспекции
 - **coroot-node-agent** — DaemonSet на каждой ноде: eBPF CPU-профилировщик (плюс Go heap-профайлер, Python-инструментирование и Java через async-profiler), метрики, логи, трейсы
 - **coroot-cluster-agent** — Deployment: кластерная телеметрия + pprof-скрейп Go-приложений
 - **Prometheus** — хранилище метрик (remote-write receiver включён)
