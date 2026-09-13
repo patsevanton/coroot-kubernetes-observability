@@ -119,17 +119,17 @@ func main() {
 		_ = tp.Shutdown(ctx)
 	}()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/leak", leakHandler)
-	mux.HandleFunc("/cpu", cpuHandler)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	// Регистрируем обработчики в http.DefaultServeMux: туда же import _ "net/http/pprof"
+	// кладёт /debug/pprof/*, поэтому cluster-agent сможет их скрейпить.
+	http.HandleFunc("/leak", leakHandler)
+	http.HandleFunc("/cpu", cpuHandler)
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "ok, goroutines=%d\n", runtime.NumGoroutine())
 	})
 
-	// Оборачиваем маршрутизатор в otelhttp — каждый входящий запрос получает server-span
+	// Оборачиваем DefaultServeMux в otelhttp — каждый входящий запрос получает server-span
 	// и экспортируется в Coroot как трейс.
-	var handler http.Handler = mux
-	handler = otelhttp.NewHandler(handler, "http-server")
+	handler := otelhttp.NewHandler(http.DefaultServeMux, "http-server")
 
 	fmt.Println("demo-service listening on :8080")
 	// background "фоновая" нагрузка, чтобы проблема была видна и без внешних запросов
