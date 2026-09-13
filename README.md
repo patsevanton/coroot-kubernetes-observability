@@ -160,7 +160,7 @@ helm install coroot oci://ghcr.io/coroot/charts/coroot-ce \
 Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Что здесь важно:
 
 - **Retention ограничен 1 часом** в трёх местах: TTL таблиц ClickHouse (`logsTTL`/`tracesTTL`/`profilesTTL`), метрический кэш (`cacheTTL`) и retention встроенного Prometheus (`prometheus.retention: "1h"`). TTL применяются при создании таблиц; для уже существующих таблиц их нужно поправить через `ALTER TABLE ... MODIFY TTL`.
-- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` на node-agent. Java-агент для профилирования не нужен: node-agent сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API. (Java-агент в `apps/java/Dockerfile` — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
+- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` на node-agent. Java-агент для профилирования не нужен: node-agent сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API. (Java-агент в [apps/java/Dockerfile](apps/java/Dockerfile) — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
 - **Нюанс по Prometheus**: данные хранятся двухчасовыми блоками, а retention отсчитывается не от текущего момента, а от `maxTime` самого свежего закрытого блока (`--storage.tsdb.retention.time` сравнивается как `blocks[0].MaxTime - block.MaxTime >= retention`). Поэтому блок удаляется не «через 1 час после записи», а только когда поверх него закрывается следующий блок: итого блок живёт ~2 часа в head до отсечения на 2-часовой границе плюс ещё ~2 часа на диске. При `prometheus.retention: "1h"` фактический горизонт метрик лежит в диапазоне от ~2 до ~4 часов (ближе к 2 — сразу после отсечения блока, ближе к 4 — перед следующим), плюс Coroot держит рядом собственный метрический кэш (`cacheTTL: "1h"`).
 - **Пароль администратора** живёт только в Kubernetes Secret `coroot-admin-secret`, а в CR передаётся ссылка на него (`authBootstrapAdminPasswordSecret`) — в git и в Helm-release пароля нет.
 - **Keeper — 1 реплика** вместо 3 по умолчанию: для демо-кластера из 3 нод это разумный компромисс (3 реплики keeper'а съели бы всю ноду).
@@ -212,7 +212,7 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 
 ### Шаг 2. Четыре приложения
 
-Образы собираются в CI (`.github/workflows/docker.yml`) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), чарт ссылается на конкретную версию через `imageRegistry` и `image.tag` в `values.yaml`. Все четыре приложения поднимаются одной установкой чарта:
+Образы собираются в CI ([.github/workflows/docker.yml](.github/workflows/docker.yml)) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), чарт ссылается на конкретную версию через `imageRegistry` и `image.tag` в [chart/values.yaml](chart/values.yaml). Все четыре приложения поднимаются одной установкой чарта:
 
 ```bash
 helm install demo ./chart --namespace demo --create-namespace
@@ -220,7 +220,7 @@ helm install demo ./chart --namespace demo --create-namespace
 
 При необходимости приложения включаются по отдельности флагами `--set golang.enabled=false`, `--set java.enabled=false` и т.д. — по умолчанию включены все четыре.
 
-Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение (`load-nuxt`, `load-python`, `load-golang`, `load-java`). Job'ы в бесконечном цикле дёргают проблемные эндпоинты приложения (`curl ... > /dev/null`), поэтому под Job'а всё время `Running`, а нагрузка идёт непрерывно. Пути запросов задаются в `load.paths` блока каждого приложения в `values.yaml`, а сам генератор отключается флагом `--set load.enabled=false`:
+Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение (`load-nuxt`, `load-python`, `load-golang`, `load-java`). Job'ы в бесконечном цикле дёргают проблемные эндпоинты приложения (`curl ... > /dev/null`), поэтому под Job'а всё время `Running`, а нагрузка идёт непрерывно. Пути запросов задаются в `load.paths` блока каждого приложения в [chart/values.yaml](chart/values.yaml), а сам генератор отключается флагом `--set load.enabled=false`:
 
 ```bash
 kubectl get jobs -n demo
@@ -240,7 +240,9 @@ env:
 
 С этими флагами во флеймграфе будут реальные имена функций `fib`/`fib`, а не анонимные адреса.
 
-**Трейсы** подключаются через OpenTelemetry: Nitro-плагин `server/plugins/otel.ts` запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — в OpenTelemetry Collector через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в `values.yaml`).
+> **Минимальная версия Node.js.** Оба флага — это V8-опции, доступные в Node.js с v10.4.0, однако `--perf-basic-prof-only-functions` был сломан в V8 8.6 (Node.js 16) и починен только в **Node.js 18.19.0 / 20.10.0 / 21.1.0** (cherry-pick `f7d000a7ae7b`). На более старых версиях этот флаг молча перестаёт писать JS-функции в perf-map, и флеймграф останется без имён. Поэтому минимальная рабочая версия — **18.19+ / 20.10+ / 21.1+**; в демо используется `node:20-alpine` (см. `apps/nuxt/Dockerfile`).
+
+**Трейсы** подключаются через OpenTelemetry: Nitro-плагин [server/plugins/otel.ts](apps/nuxt/server/plugins/otel.ts) запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — в OpenTelemetry Collector через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в [chart/values.yaml](chart/values.yaml)).
 
 Нагрузку создаёт Job `load-nuxt`, который непрерывно вызывает `/api/cpu` (см. раздел выше).
 
@@ -248,7 +250,7 @@ env:
 
 Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а пи-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
-**Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. `apps/python/Dockerfile`), который сам инструментирует `http.server` и экспортирует server-span'ы в OpenTelemetry Collector через OTLP. В `app.py` обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`. Зависимости управляются **uv** (`pyproject.toml` + `uv.lock`), сборка образа — на основе официального образа `ghcr.io/astral-sh/uv`.
+**Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. [apps/python/Dockerfile](apps/python/Dockerfile)), который сам инструментирует `http.server` и экспортирует server-span'ы в OpenTelemetry Collector через OTLP. В [apps/python/app.py](apps/python/app.py) обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`. Зависимости управляются **uv** ([apps/python/pyproject.toml](apps/python/pyproject.toml) + [apps/python/uv.lock](apps/python/uv.lock)), сборка образа — на основе официального образа `ghcr.io/astral-sh/uv`.
 
 Нагрузку создаёт Job `load-python`, который непрерывно вызывает `/cpu`.
 
@@ -260,7 +262,7 @@ Go-приложение с тремя проблемами сразу:
 - **утечка горутин** — эндпоинт `/leak` запускает горутину, которая блокируется навсегда
 - **CPU-нагрузка** — эндпоинт `/cpu` с бесполезным циклом на 5 млн итераций
 
-Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под — в чарте это уже сделано через `golang.podAnnotations` в `values.yaml`:
+Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под — в чарте это уже сделано через `golang.podAnnotations` в [chart/values.yaml](chart/values.yaml):
 
 ```yaml
 golang:
@@ -275,7 +277,7 @@ golang:
 import _ "net/http/pprof"
 ```
 
-**Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер настраивается в `main.go` из переменных окружения и шлёт спаны в OpenTelemetry Collector. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot. Обратите внимание: зависимости OpenTelemetry требуют Go **1.25+**, поэтому образ собирается на `golang:1.25-alpine` (см. `apps/golang/Dockerfile` и `go.mod`).
+**Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер настраивается в [apps/golang/main.go](apps/golang/main.go) из переменных окружения и шлёт спаны в OpenTelemetry Collector. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot. Обратите внимание: зависимости OpenTelemetry требуют Go **1.25+**, поэтому образ собирается на `golang:1.25-alpine` (см. [apps/golang/Dockerfile](apps/golang/Dockerfile) и [apps/golang/go.mod](apps/golang/go.mod)).
 
 Нагрузку создаёт Job `load-golang`, который по кругу вызывает `/leak` и `/cpu`.
 
@@ -287,7 +289,7 @@ Java-приложение на встроенном `com.sun.net.httpserver` с 
 - **`/alloc`** — фоновая аллокация массивов (видна в Memory-профиле как `alloc_space`/`alloc_objects`)
 - **`/lock`** — два потока намеренно конкурируют за один монитор (`synchronized` + `sleep`), создавая Lock-профиль
 
-Для Java-профилирования Coroot не требуется ни Java-агент, ни изменения в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в `coroot.tf`):
+Для Java-профилирования Coroot не требуется ни Java-агент, ни изменения в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в [coroot.tf](coroot.tf)):
 
 ```yaml
 nodeAgent:
@@ -296,7 +298,7 @@ nodeAgent:
       value: "true"
 ```
 
-JVM-флаги для профилирования **не обязательны**, но желательны: async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, поэтому часть JIT-скомпилированного до attach кода не имеет debug-информации в точках сэмплирования, из-за чего часть сэмплов во флеймграфе попадает в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами (см. `apps/java/Dockerfile`):
+JVM-флаги для профилирования **не обязательны**, но желательны: async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, поэтому часть JIT-скомпилированного до attach кода не имеет debug-информации в точках сэмплирования, из-за чего часть сэмплов во флеймграфе попадает в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами (см. [apps/java/Dockerfile](apps/java/Dockerfile)):
 
 ```
 -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:+PreserveFramePointer
@@ -304,7 +306,7 @@ JVM-флаги для профилирования **не обязательны
 
 `-XX:+DebugNonSafepoints` заставляет JIT сохранять debug-информацию и в несейфпоинтах — без него инлайнируемые методы могут вообще не попадать в профиль. `-XX:+PreserveFramePointer` сохраняет регистр frame pointer, что дополнительно улучшает резолв нативных/вызывающих фреймов (полезно и для eBPF-профилировщика). Полностью убрать `[unknown]` всё равно нельзя: на горячих методах (в демо — `naiveFib`), скомпилированных до подключения агента, дебаг-инфо появляется лишь после перекомпиляции.
 
-**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: в `apps/java/Dockerfile` jar скачивается и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
+**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: в [apps/java/Dockerfile](apps/java/Dockerfile) jar скачивается и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
 
 Нагрузку создаёт Job `load-java`, который по кругу вызывает `/cpu`, `/alloc` и `/lock`.
 
