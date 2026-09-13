@@ -202,6 +202,19 @@ helm install demo ./chart --namespace demo --create-namespace
 
 При необходимости приложения включаются по отдельности флагами `--set golang.enabled=false`, `--set java.enabled=false` и т.д. — по умолчанию включены все четыре.
 
+Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение (`load-nuxt`, `load-python`, `load-golang`, `load-java`). Job'ы в бесконечном цикле дёргают проблемные эндпоинты приложения (`curl ... > /dev/null`), поэтому под Job'а всё время `Running`, а нагрузка идёт непрерывно. Пути запросов задаются в `load.paths` блока каждого приложения в `values.yaml`, а сам генератор отключается флагом `--set load.enabled=false`:
+
+```bash
+kubectl get jobs -n demo
+```
+
+Если нужно нагрузить приложение вручную (например, только один эндпоинт), вместо Job можно запустить разовый под с тем же циклом:
+
+```bash
+kubectl run -n demo load-manual --image=curlimages/curl --rm -it -- \
+  sh -c 'while true; do curl -s http://demo-nuxt:3000/api/cpu > /dev/null; done'
+```
+
 ### Демо 1: Nuxt (Node.js) — CPU-bound
 
 Приложение на Nuxt 3 с единственным API-эндпоинтом `/api/cpu`, который считает наивный Фибоначчи (`fib(35)` — ~30 млн рекурсивных вызовов). Экспоненциальная сложность мгновенно видна в CPU-профиле.
@@ -218,10 +231,7 @@ env:
 
 **Трейсы** подключаются через OpenTelemetry: Nitro-плагин `server/plugins/otel.ts` запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — напрямую в Coroot через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в `values.yaml`).
 
-```bash
-kubectl run -n demo load --image=curlimages/curl --rm -it -- \
-  sh -c 'while true; do curl -s http://demo-nuxt:3000/api/cpu > /dev/null; done'
-```
+Нагрузку создаёт Job `load-nuxt`, который непрерывно вызывает `/api/cpu` (см. раздел выше).
 
 ### Демо 2: Python — CPU-bound
 
@@ -229,10 +239,7 @@ Python-приложение на стандартном `http.server` с энд�
 
 **Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. `apps/python/Dockerfile`), который сам инструментирует `http.server` и экспортирует server-span'ы в Coroot через OTLP. В `app.py` обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`. Зависимости управляются **uv** (`pyproject.toml` + `uv.lock`), сборка образа — на основе официального образа `ghcr.io/astral-sh/uv`.
 
-```bash
-kubectl run -n demo load-python --image=curlimages/curl --rm -it -- \
-  sh -c 'while true; do curl -s http://demo-python:8080/cpu > /dev/null; done'
-```
+Нагрузку создаёт Job `load-python`, который непрерывно вызывает `/cpu`.
 
 ### Демо 3: Go — утечка памяти и горутин
 
@@ -259,10 +266,7 @@ import _ "net/http/pprof"
 
 **Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер настраивается в `main.go` из переменных окружения. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot. Обратите внимание: зависимости OpenTelemetry требуют Go **1.25+**, поэтому образ собирается на `golang:1.25-alpine` (см. `apps/golang/Dockerfile` и `go.mod`).
 
-```bash
-kubectl run -n demo load-go --image=curlimages/curl --rm -it -- \
-  sh -c 'while true; do curl -s http://demo-golang:8080/leak > /dev/null; done'
-```
+Нагрузку создаёт Job `load-golang`, который по кругу вызывает `/leak` и `/cpu`.
 
 ### Демо 4: Java — CPU, аллокации и блокировки
 
@@ -291,10 +295,7 @@ nodeAgent:
 
 **Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: в `apps/java/Dockerfile` jar скачивается и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в Coroot через OTLP.
 
-```bash
-kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
-  sh -c 'while true; do curl -s http://demo-java:8080/cpu > /dev/null; curl -s http://demo-java:8080/alloc > /dev/null; curl -s http://demo-java:8080/lock > /dev/null; done'
-```
+Нагрузку создаёт Job `load-java`, который по кругу вызывает `/cpu`, `/alloc` и `/lock`.
 
 ## Часть 3. Что видно в Coroot
 
@@ -339,7 +340,14 @@ kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
 
 Как это выглядит в UI: выберите приложение → вкладка **Tracing**. Coroot показывает HeatMap распределения запросов по времени, статусам и длительности:
 
-- **Ошибки** — выделите область на графике, и Coroot проанализирует *все* попавшие туда трейсы, найдя конкретные спаны, где ошибка возникла.
+Свободной фильтрации трасс по атрибутам в Coroot нет — фильтрация выполняется выделением области на HeatMap:
+
+- **Ось X (время)** задаёт `tsRange`, **ось Y (длительность)** — `durRange`, а **статус** — метка `err` внутри `durRange`.
+- **«Show error traces»** фильтрует по `StatusCode='STATUS_CODE_ERROR'`.
+- **«Show latency SLO violations»** фильтрует по `Duration >= SLO objective`.
+- **Источник** трасс (OpenTelemetry vs eBPF) переключается селектором `sources`.
+
+- **Ошибки** — выделите область на графике, и Coroot проанализирует *все* попавшие туда трассы, найдя конкретные спаны, где ошибка возникла.
 - **Медленные запросы** — в режиме сравнения Coroot подсветит красным операции, которые стали занимать больше времени, чем раньше; это удобно для ловли регрессий после релиза.
 - **Сравнение атрибутов** — Coroot автоматически найдёт, чем запросы из аномалии отличаются от остальных (по любым кастомным атрибутам спанов, без настройки).
 
@@ -365,12 +373,22 @@ kubectl run -n demo load-java --image=curlimages/curl --rm -it -- \
 
 > **Почему не VictoriaMetrics.** У single-node VictoriaMetrics минимальный `-retentionPeriod` — **24h** (меньше задать нельзя: VM не стартует). Поэтому в этой конфигурации метрики хранит встроенный Prometheus Coroot (`prometheus.retention: "1h"`), у которого ограничение в 1 час допустимо. Если хранение метрик 24h приемлемо — VictoriaMetrics можно вернуть как замену Prometheus через `externalPrometheus` в Coroot CR.
 
-TTL таблиц ClickHouse применяются при их создании. Если таблицы уже существовали (например, после прошлого деплоя с другими TTL), обновите их вручную:
+TTL таблиц ClickHouse применяются при их создании. Если таблицы уже существовали (например, после прошлого деплоя с другими TTL), обновите их вручную. Имена таблиц и колонок времени зависят от версии Coroot; актуальные для этой конфигурации:
 
 ```sql
-ALTER TABLE <db>.traces MODIFY TTL toDateTime(timestamp) + INTERVAL 1 HOUR;
-ALTER TABLE <db>.logs    MODIFY TTL toDateTime(timestamp) + INTERVAL 1 HOUR;
-ALTER TABLE <db>.profiles MODIFY TTL toDateTime(timestamp) + INTERVAL 1 HOUR;
+ALTER TABLE <db>.otel_traces       MODIFY TTL toDateTime(Timestamp) + INTERVAL 1 HOUR;
+ALTER TABLE <db>.otel_logs         MODIFY TTL toDateTime(Timestamp) + INTERVAL 1 HOUR;
+ALTER TABLE <db>.profiling_profiles MODIFY TTL toDateTime(LastSeen) + INTERVAL 1 HOUR;
+ALTER TABLE <db>.profiling_samples  MODIFY TTL toDateTime(Start) + INTERVAL 1 HOUR;
+ALTER TABLE <db>.profiling_stacks   MODIFY TTL toDateTime(LastSeen) + INTERVAL 1 HOUR;
+```
+
+Проверить текущие TTL можно так:
+
+```sql
+SELECT table, extractAll(create_table_query, 'TTL[^\n]*')
+FROM system.tables
+WHERE database = '<db>' AND name IN ('otel_traces', 'otel_logs', 'profiling_profiles', 'profiling_samples', 'profiling_stacks');
 ```
 
 Кроме TTL, за диском следит **space manager** ClickHouse (по умолчанию включён): при превышении 70% занятости он удаляет старые партиции, даже если TTL ещё не наступил. Для демо с `20Gi` и 1-часовым TTL это редко срабатывает, но про него стоит помнить.

@@ -7,6 +7,22 @@ imageRegistry: ghcr.io/patsevanton/coroot-kubernetes-observability
 # Трейсы уходят напрямую в Coroot (OTLP over HTTP) — сервис coroot-coroot на порту
 # 8080 принимает OTLP по пути /v1/traces. Значения заданы в env каждого приложения ниже.
 
+# --- Генераторы нагрузки (бесконечные Job) ---
+# На каждое включённое приложение создаётся Job load-<app>, который в цикле
+# дёргает его проблемные эндпоинты (пути — load.paths в блоке приложения).
+load:
+  enabled: true
+  image: curlimages/curl
+  tag: latest
+  pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 32Mi
+
 # --- Демо 1: Nuxt (Node.js), CPU-bound ---
 nuxt:
   enabled: true
@@ -28,6 +44,10 @@ nuxt:
     OTEL_METRICS_EXPORTER: "none"
     OTEL_LOGS_EXPORTER: "none"
   podAnnotations: {}
+  # Пути для генератора нагрузки (по одному запросу за итерацию, по кругу).
+  load:
+    paths:
+      - /api/cpu
   resources:
     requests:
       cpu: 100m
@@ -53,6 +73,9 @@ python:
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://coroot-coroot.coroot:8080/v1/traces"
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
   podAnnotations: {}
+  load:
+    paths:
+      - /cpu
   resources:
     requests:
       cpu: 100m
@@ -82,6 +105,10 @@ golang:
   podAnnotations:
     coroot.com/profile-scrape: "true"
     coroot.com/profile-port: "8080"
+  load:
+    paths:
+      - /leak
+      - /cpu
   resources:
     requests:
       cpu: 100m
@@ -109,6 +136,11 @@ java:
     OTEL_METRICS_EXPORTER: "none"
     OTEL_LOGS_EXPORTER: "none"
   podAnnotations: {}
+  load:
+    paths:
+      - /cpu
+      - /alloc
+      - /lock
   resources:
     requests:
       cpu: 100m

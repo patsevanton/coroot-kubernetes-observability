@@ -1,0 +1,34 @@
+{{- if .Values.load.enabled }}
+{{- $apps := dict "nuxt" .Values.nuxt "python" .Values.python "golang" .Values.golang "java" .Values.java -}}
+{{- range $name, $app := $apps }}
+{{- if $app.enabled }}
+{{- $url := printf "http://demo-%s:%v" $name $app.service.port -}}
+{{- $cmd := "while true; do " -}}
+{{- range $app.load.paths }}{{ $cmd = printf "%scurl -s %s%s > /dev/null; " $cmd $url . }}{{ end -}}
+{{- $cmd = printf "%sdone" $cmd }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-{{ $name }}
+  labels:
+    app: load-{{ $name }}
+    {{- include "coroot-demo-apps.labels" $ | nindent 4 }}
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: load-{{ $name }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: load
+          image: "{{ $.Values.load.image }}:{{ $.Values.load.tag }}"
+          imagePullPolicy: {{ $.Values.load.pullPolicy }}
+          command: ["sh", "-c", {{ $cmd | quote }}]
+          resources:
+            {{- toYaml $.Values.load.resources | nindent 12 }}
+{{- end }}
+{{- end }}
+{{- end }}
