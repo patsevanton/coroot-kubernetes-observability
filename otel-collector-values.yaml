@@ -1,0 +1,70 @@
+# Values для OpenTelemetry Collector (Helm-чарт open-telemetry/opentelemetry-collector).
+# Демо для статьи про Coroot: принимает трейсы демо-приложений по OTLP/HTTP (4318),
+# обрабатывает batch'ем и пересылает в Coroot по OTLP/HTTP (внутренний сервис).
+#
+# Установка:
+#   helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+#   helm install otel-collector open-telemetry/opentelemetry-collector \
+#     --version 0.173.1 -n otel --create-namespace -f otel-collector-values.yaml
+#
+# Сервис коллектора для приложений: http://otel-collector.otel:4318/v1/traces
+
+mode: deployment
+
+# Короткое и предсказуемое имя ресурсов (иначе будет <release>-opentelemetry-collector).
+fullnameOverride: otel-collector
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.160.0"
+  pullPolicy: IfNotPresent
+
+# Только HTTP-приёмник трейсов; jaeger/zipkin/grpc/метрики не нужны.
+ports:
+  otlp:
+    enabled: false
+  otlp-http:
+    enabled: true
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+  metrics:
+    enabled: false
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Полный конфиг коллектора (без слияния со стандартными jaeger/zipkin/prometheus).
+# health_check обязателен — на него завязаны liveness/readiness-пробы чарта (порт 13133).
+alternateConfig:
+  extensions:
+    health_check:
+      endpoint: ${env:MY_POD_IP}:13133
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+  processors:
+    batch: {}
+  exporters:
+    otlp_http/coroot:
+      endpoint: "http://coroot-coroot.coroot:8080"
+  service:
+    extensions:
+      - health_check
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [otlp_http/coroot]

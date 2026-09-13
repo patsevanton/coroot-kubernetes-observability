@@ -4,7 +4,7 @@
 
 - [x] Разобраться с Java `[unknown]`: флаги `-XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints` реально применяются, async-profiler подгружается (`/tmp/coroot/libasyncProfiler.so`, JFR пишется), JVM Temurin 21 HotSpot. Остаточный `[unknown]` — следствие runtime-attach (горячий `naiveFib` скомпилирован до attach). Добавлен `-XX:+PreserveFramePointer` в `apps/java/Dockerfile`, README уточнён.
 - [x] Разобраться с фильтрацией трейсов в Coroot: свободной фильтрации по аттрибутам нет; фильтрация — выделением области на HeatMap (время по X → `tsRange`, длительность по Y → `durRange`, статус — метка `err` в `durRange`). Кнопки «Show error traces» (`StatusCode='STATUS_CODE_ERROR'`) и «Show latency SLO violations» (`Duration >= SLO objective`). Источник (OpenTelemetry vs eBPF) — переключатель `sources`.
-- [ ] Поднять OpenTelemetry Collector, отправлять трейсы в него, а оттуда — в Coroot. Пример конфига от разработчиков Coroot:
+- [x] Поднять OpenTelemetry Collector, отправлять трейсы в него, а оттуда — в Coroot. Пример конфига от разработчиков Coroot:
 
 
 

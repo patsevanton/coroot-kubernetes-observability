@@ -78,7 +78,8 @@ flowchart LR
     ClusterAgent["coroot-cluster-agent<br/>pprof-скрейп"] -->|Go-профили| Coroot
 
     App["demo-приложения"] -->|/debug/pprof| ClusterAgent
-    App -->|OTLP (трейсы)| Coroot
+    App -->|OTLP (трейсы)| OTel["OpenTelemetry Collector"]
+    OTel -->|OTLP| Coroot
 ```
 
 ### Шаг 1. Установка Coroot в кластер
@@ -194,6 +195,20 @@ open "http://coroot.<ip>.sslip.io"
 
 Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге `apps/`, деплой — Helm-чартом [chart/](chart/).
 
+### Шаг 1. OpenTelemetry Collector
+
+Перед приложениями поднимаем **OpenTelemetry Collector** — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в `otel-collector-values.yaml` в корне репозитория (используется `alternateConfig` чарта `open-telemetry/opentelemetry-collector`, чтобы оставить только HTTP-ресивер трейсов без «мусорных» jaeger/zipkin/prometheus-ресиверов):
+
+```bash
+helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+helm install otel-collector open-telemetry/opentelemetry-collector \
+  --version 0.173.1 -n otel --create-namespace -f otel-collector-values.yaml
+```
+
+Коллектор слушает OTLP/HTTP на `4318` в namespace `otel`. Приложения обращаются к нему по адресу `http://otel-collector.otel:4318/v1/traces`, а сам коллектор пересылает батчи в Coroot на внутренний сервис `coroot-coroot.coroot:8080`.
+
+### Шаг 2. Четыре приложения
+
 Образы собираются в CI (`.github/workflows/docker.yml`) и публикуются в GitHub Container Registry с тегом версии (`ghcr.io/patsevanton/coroot-kubernetes-observability/<app>:<version>`), чарт ссылается на конкретную версию через `imageRegistry` и `image.tag` в `values.yaml`. Все четыре приложения поднимаются одной установкой чарта:
 
 ```bash
@@ -229,7 +244,7 @@ env:
 
 С этими флагами во флеймграфе будут реальные имена функций `fib`/`fib`, а не анонимные адреса.
 
-**Трейсы** подключаются через OpenTelemetry: Nitro-плагин `server/plugins/otel.ts` запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — напрямую в Coroot через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в `values.yaml`).
+**Трейсы** подключаются через OpenTelemetry: Nitro-плагин `server/plugins/otel.ts` запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — в OpenTelemetry Collector через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в `values.yaml`).
 
 Нагрузку создаёт Job `load-nuxt`, который непрерывно вызывает `/api/cpu` (см. раздел выше).
 
@@ -237,7 +252,7 @@ env:
 
 Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а пи-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
-**Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. `apps/python/Dockerfile`), который сам инструментирует `http.server` и экспортирует server-span'ы в Coroot через OTLP. В `app.py` обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`. Зависимости управляются **uv** (`pyproject.toml` + `uv.lock`), сборка образа — на основе официального образа `ghcr.io/astral-sh/uv`.
+**Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. `apps/python/Dockerfile`), который сам инструментирует `http.server` и экспортирует server-span'ы в OpenTelemetry Collector через OTLP. В `app.py` обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`. Зависимости управляются **uv** (`pyproject.toml` + `uv.lock`), сборка образа — на основе официального образа `ghcr.io/astral-sh/uv`.
 
 Нагрузку создаёт Job `load-python`, который непрерывно вызывает `/cpu`.
 
@@ -264,7 +279,7 @@ golang:
 import _ "net/http/pprof"
 ```
 
-**Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер настраивается в `main.go` из переменных окружения. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot. Обратите внимание: зависимости OpenTelemetry требуют Go **1.25+**, поэтому образ собирается на `golang:1.25-alpine` (см. `apps/golang/Dockerfile` и `go.mod`).
+**Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер настраивается в `main.go` из переменных окружения и шлёт спаны в OpenTelemetry Collector. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot. Обратите внимание: зависимости OpenTelemetry требуют Go **1.25+**, поэтому образ собирается на `golang:1.25-alpine` (см. `apps/golang/Dockerfile` и `go.mod`).
 
 Нагрузку создаёт Job `load-golang`, который по кругу вызывает `/leak` и `/cpu`.
 
@@ -293,7 +308,7 @@ nodeAgent:
 
 `-XX:+DebugNonSafepoints` заставляет JIT сохранять debug-информацию и в несейфпоинтах — без него инлайнируемые методы могут вообще не попадать в профиль. `-XX:+PreserveFramePointer` сохраняет регистр frame pointer, что дополнительно улучшает резолв нативных/вызывающих фреймов (полезно и для eBPF-профилировщика). Полностью убрать `[unknown]` всё равно нельзя: на горячих методах (в демо — `naiveFib`), скомпилированных до подключения агента, дебаг-инфо появляется лишь после перекомпиляции.
 
-**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: в `apps/java/Dockerfile` jar скачивается и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в Coroot через OTLP.
+**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: в `apps/java/Dockerfile` jar скачивается и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
 
 Нагрузку создаёт Job `load-java`, который по кругу вызывает `/cpu`, `/alloc` и `/lock`.
 
@@ -327,7 +342,7 @@ nodeAgent:
 
 ### Трейсы
 
-Все четыре демо-приложения инструментированы OpenTelemetry и отправляют трейсы напрямую в Coroot по OTLP over HTTP. Никакого отдельного OpenTelemetry Collector не требуется: Coroot принимает OTLP на сервисе `coroot-coroot:8080` по пути `/v1/traces` (этот же порт принимает и gRPC OTLP на `4317`).
+Все четыре демо-приложения инструментированы OpenTelemetry и отправляют трейсы по OTLP over HTTP в **OpenTelemetry Collector**, который батчит их и пересылает в Coroot. Коллектор принимает OTLP на сервисе `otel-collector.otel` по порту `4318`, а в Coroot трейсы уходят на внутренний сервис `coroot-coroot.coroot:8080` по пути `/v1/traces`.
 
 | Приложение | Способ инструментирования | Что в трейсе |
 |---|---|---|
@@ -336,7 +351,7 @@ nodeAgent:
 | Java | автоинструментация через `-javaagent:opentelemetry-javaagent.jar` | server-span на каждый запрос без изменений кода |
 | Nuxt (Node.js) | `NodeSDK` + `HttpInstrumentation` в Nitro-плагине + вложенный span `fib` | server-span + span `fib` |
 
-Общая схема для всех четырёх языков одинакова: приложение экспортирует OTLP-спаны, Coroot пишет их в ClickHouse (таблица трейсов живёт `tracesTTL: "1h"`) и строит из них Service Map, латентность и drill-down от спана — в логи и профили.
+Общая схема для всех четырёх языков одинакова: приложение экспортирует OTLP-спаны в коллектор, тот пересылает их в Coroot, а Coroot пишет их в ClickHouse (таблица трейсов живёт `tracesTTL: "1h"`) и строит из них Service Map, латентность и drill-down от спана — в логи и профили.
 
 Как это выглядит в UI: выберите приложение → вкладка **Tracing**. Coroot показывает HeatMap распределения запросов по времени, статусам и длительности:
 
