@@ -43,7 +43,7 @@ Coroot собирает профили двумя способами, котор
   - **Go heap** — `coroot-node-agent` читает структуру `runtime.MemProfile` прямо из памяти процесса (`/proc/<pid>/mem`). В приложение ничего не подключается.
   - **Go pprof** — `coroot-cluster-agent` скрейпит стандартный `/debug/pprof` (CPU/blocking/mutex), который Go-рантайм отдаёт из коробки; его лишь нужно экспортировать в приложении и пометить аннотациями.
   - **Java** — `coroot-node-agent` находит HotSpot JVM и динамически подгружает нативную `libasync-profiler.so` через JVM Attach API (CPU/alloc/lock). Библиотека приходит с агентом, а не с приложением.
-  - **Python** — eBPF-инструментирование резолвит Python-фреймы через пи-профайлер.
+  - **Python** — eBPF-инструментирование резолвит Python-фреймы через Pyroscope eBPF-профайлер (`github.com/grafana/pyroscope/ebpf`), который `coroot-node-agent` запускает с включённой Python-инструментацией (`PythonEnabled`).
 
 ## Предварительные требования
 
