@@ -236,7 +236,7 @@ env:
 
 ### Демо 2: Python
 
-Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а пи-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
+Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а Pyroscope eBPF-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
 **Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. [apps/python/Dockerfile](apps/python/Dockerfile)), который сам инструментирует `http.server` и экспортирует server-span'ы в OpenTelemetry Collector через OTLP. В [apps/python/app.py](apps/python/app.py) обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`.
 
