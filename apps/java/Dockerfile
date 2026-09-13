@@ -21,4 +21,6 @@ ENTRYPOINT ["java", \
   "-javaagent:/app/opentelemetry-javaagent.jar", \
   "-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints", \
   "-XX:+PreserveFramePointer", \
+  "-XX:TieredStopAtLevel=1", \
+  "-XX:CompileCommand=dontinline,DemoJava.naiveFib", \
   "-cp", "/app", "DemoJava"]
