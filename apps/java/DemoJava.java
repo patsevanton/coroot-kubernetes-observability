@@ -6,10 +6,20 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Демо-приложение для Java-профилирования в Coroot.
+ *
+ * Профилирование здесь идёт через async-profiler, который coroot-node-agent
+ * подгружает динамически по JVM Attach API (флаг ENABLE_JAVA_ASYNC_PROFILER),
+ * поэтому Java-агент для профилирования не нужен. OpenTelemetry Java-агент
+ * (см. Dockerfile, флаг -javaagent) отвечает только за автоинструментацию
+ * трейсов и к профилям CPU/alloc/lock отношения не имеет.
+ */
 public class DemoJava {
     private static final List<byte[]> retained = new ArrayList<>();
     private static final Object lock = new Object();
 
+    // Экспоненциальная рекурсия: горит в CPU-профиле (флеймграф покажет naiveFib).
     private static int naiveFib(int n) {
         if (n < 2) {
             return n;
@@ -27,6 +37,7 @@ public class DemoJava {
         }
     }
 
+    // Намеренная аллокация — видна в Memory-профиле как alloc_space/alloc_objects.
     private static void allocate() {
         for (int i = 0; i < 200_000; i++) {
             retained.add(new byte[512]);
@@ -36,6 +47,7 @@ public class DemoJava {
         }
     }
 
+    // Два потока конкурируют за один монитор — даёт Lock-профиль (contentions/delay).
     private static void contendLock() {
         Thread a = new Thread(() -> {
             synchronized (lock) {

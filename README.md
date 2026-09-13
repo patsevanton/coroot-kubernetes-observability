@@ -155,7 +155,7 @@ helm install coroot oci://ghcr.io/coroot/charts/coroot-ce \
 Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Что здесь важно:
 
 - **Retention ограничен 1 часом** в трёх местах: TTL таблиц ClickHouse (`logsTTL`/`tracesTTL`/`profilesTTL`), метрический кэш (`cacheTTL`) и retention встроенного Prometheus (`prometheus.retention: "1h"`). TTL применяются при создании таблиц; для уже существующих таблиц их нужно поправить через `ALTER TABLE ... MODIFY TTL`.
-- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` на node-agent. В отличие от Java-агентов, приложение трогать не нужно: агент сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API.
+- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` на node-agent. Java-агент для профилирования не нужен: node-agent сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API. (Java-агент в `apps/java/Dockerfile` — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
 - **Нюанс по Prometheus**: данные хранятся двухчасовыми блоками, а retention отсчитывается не от текущего момента, а от `maxTime` самого свежего закрытого блока (`--storage.tsdb.retention.time` сравнивается как `blocks[0].MaxTime - block.MaxTime >= retention`). Поэтому блок удаляется не «через 1 час после записи», а только когда поверх него закрывается следующий блок: итого блок живёт ~2 часа в head до отсечения на 2-часовой границе плюс ещё ~2 часа на диске. При `prometheus.retention: "1h"` фактический горизонт метрик лежит в диапазоне от ~2 до ~4 часов (ближе к 2 — сразу после отсечения блока, ближе к 4 — перед следующим), плюс Coroot держит рядом собственный метрический кэш (`cacheTTL: "1h"`).
 - **Пароль администратора** живёт только в Kubernetes Secret `coroot-admin-secret`, а в CR передаётся ссылка на него (`authBootstrapAdminPasswordSecret`) — в git и в Helm-release пароля нет.
 - **Keeper — 1 реплика** вместо 3 по умолчанию: для демо-кластера из 3 нод это разумный компромисс (3 реплики keeper'а съели бы всю ноду).
@@ -293,7 +293,7 @@ Java-приложение на встроенном `com.sun.net.httpserver` с 
 - **`/alloc`** — фоновая аллокация массивов (видна в Memory-профиле как `alloc_space`/`alloc_objects`)
 - **`/lock`** — два потока намеренно конкурируют за один монитор (`synchronized` + `sleep`), создавая Lock-профиль
 
-Java-профилирование в Coroot не требует ни JVM-флагов, ни Java-агентов, ни изменений в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в `coroot.tf`):
+Для Java-профилирования Coroot не требуется ни Java-агент, ни изменения в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в `coroot.tf`):
 
 ```yaml
 nodeAgent:
@@ -302,7 +302,7 @@ nodeAgent:
       value: "true"
 ```
 
-Так как async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, часть JIT-скомпилированного до attach кода не имеет debug-информации в точках сэмплирования, из-за чего часть сэмплов во флеймграфе попадает в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами (см. `apps/java/Dockerfile`):
+JVM-флаги для профилирования **не обязательны**, но желательны: async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, поэтому часть JIT-скомпилированного до attach кода не имеет debug-информации в точках сэмплирования, из-за чего часть сэмплов во флеймграфе попадает в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами (см. `apps/java/Dockerfile`):
 
 ```
 -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:+PreserveFramePointer

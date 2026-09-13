@@ -56,7 +56,9 @@ locals {
     }
 
     # Java-профилирование: node-agent динамически подгружает async-profiler
-    # в HotSpot JVM (CPU/alloc/lock) без изменений в приложении и JVM-флагов.
+    # в HotSpot JVM (CPU/alloc/lock) без Java-агента и изменений в приложении.
+    # JVM-флаги не обязательны, но в демо заданы (см. apps/java/Dockerfile),
+    # чтобы минимизировать долю [unknown] во флеймграфе.
     nodeAgent = {
       env = [
         {
