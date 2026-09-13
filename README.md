@@ -12,8 +12,8 @@ Coroot ставится в любой Kubernetes-кластер. В этой с�
 
 | Метрика | Coroot v1.26.0 (Community Edition) | Grafana Pyroscope | Parca | Pixie | Perforator (Yandex) |
 |---------|--------|-------------------|-------|---------------------|---------------------|
-| Профилирование | eBPF CPU + Go (heap/pprof) + Java (async-profiler) | pprof/ebpf-клиенты, языковые агенты | eBPF + pprof | eBPF-автоинструментация k8s, CPU-профили | eBPF kernel + userspace, CPU, sPGO/AutoFDO |
-| Нужны ли изменения кода | Нет (eBPF), для Go-памяти/CPU — опционально pprof | Для части языков нужен клиент | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
+| Профилирование | eBPF CPU + Go (heap/pprof) + Java (async-profiler) | языковые SDK, Grafana Alloy, OTLP; eBPF через Alloy/OTel | eBPF + pprof | eBPF-автоинструментация k8s, CPU-профили | eBPF kernel + userspace, CPU, sPGO/AutoFDO |
+| Нужны ли изменения кода | Нет (eBPF), для Go-памяти/CPU — опционально pprof | Да — SDK/агент (eBPF только через Alloy/OTel) | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
 | Метрики + логи + трейсы | ✅ в одном UI | ❌ (только профили) | ❌ (только профили) | ⚠️ (eBPF-метрики, запросы и трейсы) | ❌ (только профили) |
 | Автодиагностика (инспекции) | ✅ 80%+ типовых проблем | ❌ | ❌ | ⚠️ (готовые PxL-скрипты) | ❌ |
 | SLO-алертинг | ✅ | ❌ | ❌ | ❌ | ❌ |
