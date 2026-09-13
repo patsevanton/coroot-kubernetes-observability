@@ -75,8 +75,7 @@ Coroot в кластере состоит из нескольких компон
 
 ```mermaid
 flowchart TB
-    Browser["Браузер"] -->|HTTPS| Ingress["Traefik"]
-    Ingress --> Coroot["Coroot<br/>(UI, API, инспекции)"]
+    Coroot["Coroot<br/>(UI, API, инспекции)"]
 
     Coroot --> PG[(Prometheus<br/>метрики)]
     Coroot --> CH[(ClickHouse<br/>логи/трейсы/профили)]
@@ -193,19 +192,15 @@ coroot-operator-xxx-yyy              1/1     Running   0          5m
 
 Открываем UI:
 
-```bash
-open "http://coroot.<ip>.sslip.io"
-```
-
 Входим с логином `admin` и паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
 ## Часть 2. Четыре «сломанных» приложения
 
-Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге `apps/`, деплой — Helm-чартом [chart/](chart/).
+Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
 
 ### Шаг 1. OpenTelemetry Collector
 
-Перед приложениями поднимаем **OpenTelemetry Collector** — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в `otel-collector-values.yaml` в корне репозитория (используется `alternateConfig` чарта `open-telemetry/opentelemetry-collector`, чтобы оставить только HTTP-ресивер трейсов без «мусорных» jaeger/zipkin/prometheus-ресиверов):
+Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `alternateConfig` чарта `open-telemetry/opentelemetry-collector`, чтобы оставить только HTTP-ресивер трейсов без jaeger/zipkin/prometheus-ресиверов):
 
 ```bash
 helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
@@ -229,13 +224,6 @@ helm install demo ./chart --namespace demo --create-namespace
 
 ```bash
 kubectl get jobs -n demo
-```
-
-Если нужно нагрузить приложение вручную (например, только один эндпоинт), вместо Job можно запустить разовый под с тем же циклом:
-
-```bash
-kubectl run -n demo load-manual --image=curlimages/curl --rm -it -- \
-  sh -c 'while true; do curl -s http://demo-nuxt:3000/api/cpu > /dev/null; done'
 ```
 
 ### Демо 1: Nuxt (Node.js) — CPU-bound
