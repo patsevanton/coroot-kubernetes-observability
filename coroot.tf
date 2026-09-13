@@ -113,7 +113,7 @@ resource "local_file" "coroot_values" {
 
 output "coroot_admin_password_command" {
   description = "Команда kubectl для получения пароля администратора Coroot из секрета (логин admin)"
-  value       = "kubectl -n ${kubernetes_secret.coroot_admin.metadata[0].namespace} get secret ${kubernetes_secret.coroot_admin.metadata[0].name} -o jsonpath='{.data.admin-password}' | base64 -d"
+  value       = "kubectl -n ${kubernetes_secret.coroot_admin.metadata[0].namespace} get secret ${kubernetes_secret.coroot_admin.metadata[0].name} -o jsonpath='{.data.admin-password}' | base64 -d; echo"
 }
 
 output "coroot_admin_password" {
