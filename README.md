@@ -214,7 +214,7 @@ helm install demo ./chart --namespace demo --create-namespace
 kubectl get jobs -n demo
 ```
 
-### Демо 1: Nuxt (Node.js) — CPU-bound
+### Демо 1: Nuxt (Node.js)
 
 Приложение на Nuxt 3 с единственным API-эндпоинтом `/api/cpu`, который считает наивный Фибоначчи (`fib(35)` — ~30 млн рекурсивных вызовов). Экспоненциальная сложность мгновенно видна в CPU-профиле.
 
