@@ -115,3 +115,9 @@ output "coroot_admin_secret_name" {
   description = "Имя Kubernetes Secret с паролем администратора Coroot"
   value       = kubernetes_secret.coroot_admin.metadata[0].name
 }
+
+output "coroot_admin_password" {
+  description = "Пароль администратора Coroot для входа в UI (логин admin)"
+  value       = var.coroot_admin_password
+  sensitive   = true
+}
