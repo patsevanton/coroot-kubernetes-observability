@@ -10,18 +10,18 @@ Coroot ставится в любой Kubernetes-кластер. В этой с�
 
 ## Coroot vs Pyroscope vs Parca vs Pixie vs Perforator
 
-| Метрика | Coroot v1.26.0 (Community Edition) | Grafana Pyroscope | Parca | Pixie | Perforator (Yandex) |
+| Метрика | Coroot (Community Edition) | Grafana Pyroscope | Parca | Pixie | Perforator (Yandex) |
 |---------|--------|-------------------|-------|---------------------|---------------------|
 | Профилирование | eBPF CPU + Go (heap/pprof) + Java (async-profiler) | языковые SDK, Grafana Alloy, OTLP; eBPF через Alloy/OTel | eBPF + pprof | eBPF-автоинструментация k8s, CPU-профили | eBPF kernel + userspace, CPU, sPGO/AutoFDO |
-| Нужны ли изменения кода | Нет (eBPF), для Go-памяти/CPU — опционально pprof | Да — SDK/агент (eBPF только через Alloy/OTel) | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
+| Нужны ли изменения кода | Нет (eBPF + Go heap), для CPU/blocking/mutex — опционально pprof | Да — SDK/агент (eBPF только через Alloy/OTel) | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
 | Метрики + логи + трейсы | ✅ в одном UI | ❌ (только профили) | ❌ (только профили) | ⚠️ (eBPF-метрики, запросы и трейсы) | ❌ (только профили) |
 | Автодиагностика (инспекции) | ✅ 80%+ типовых проблем | ❌ | ❌ | ⚠️ (готовые PxL-скрипты) | ❌ |
 | SLO-алертинг | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Service Map | ✅ | ❌ | ❌ | ⚠️ (по eBPF-трафику) | ❌ |
-| Хранилище профилей | ClickHouse | S3-совместимое | object storage | локально в кластере (краткосрочное) | ClickHouse |
+| Хранилище профилей | ClickHouse | S3-совместимое | object storage | локально в кластере (краткосрочное) | ClickHouse (метаданные профилей) + PostgreSQL (метаданные бинарей) + S3-совместимое (сырые профили) |
 | Self-hosted | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-В таблице — только свободные решения: Coroot Community Edition, Grafana Pyroscope (AGPLv3), Parca (Apache 2.0), Pixie (Apache 2.0) и Perforator (Apache 2.0). Дополнительно к уже рассмотренным выделяются два профилировщика с eBPF-сбором: [Pixie](https://github.com/pixie-io/pixie) — open-source eBPF-автоинструментация для Kubernetes, которая снимает метрики, запросы и CPU-профили без изменений в подах; [Perforator](https://github.com/yandex/perforator) от Yandex — production-ready continuous profiling для больших датацентров (десятки тысяч нод), вдохновлённый Google-Wide Profiling, с размоткой стека без frame pointers/дебаг-символов и генерацией sPGO-профилей для PGO-сборки.
+В таблице — только свободные решения: Coroot Community Edition, Grafana Pyroscope, Parca, Pixie и Perforator. Дополнительно к уже рассмотренным выделяются два профилировщика с eBPF-сбором: [Pixie](https://github.com/pixie-io/pixie) — open-source eBPF-автоинструментация для Kubernetes, которая снимает метрики, запросы и CPU-профили без изменений в подах; [Perforator](https://github.com/yandex/perforator) от Yandex — production-ready continuous profiling для больших датацентров (десятки тысяч нод), вдохновлённый Google-Wide Profiling, с размоткой стека без frame pointers/дебаг-символов и генерацией sPGO-профилей для PGO-сборки.
 
 Coroot не пытается быть «ещё одним pprof-интерфейсом» — профили здесь один из сигналов наравне с метриками, логами и трейсами, и все они связаны между собой: от аномалии на графике CPU — в флеймграф, от фрейма — в связанные логи и трейсы.
 
