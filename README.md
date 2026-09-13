@@ -75,7 +75,7 @@ flowchart TB
     NodeAgent -->|метрики, логи| Coroot
     ClusterAgent["coroot-cluster-agent<br/>pprof-скрейп"] -->|Go-профили| Coroot
 
-    App["demo-приложения"] -->|/debug/pprof| ClusterAgent
+    ClusterAgent -->|"скрейп /debug/pprof"| App["demo-приложения"]
     App -->|"OTLP (трейсы)"| OTel["OpenTelemetry Collector"]
     OTel -->|OTLP| Coroot
 ```
