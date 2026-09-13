@@ -231,7 +231,7 @@ env:
 
 С этими флагами во флеймграфе будут реальные имена функций `fib`/`fib`, а не анонимные адреса.
 
-> **Минимальная версия Node.js.** Оба флага — это V8-опции, доступные в Node.js с v10.4.0, однако `--perf-basic-prof-only-functions` был сломан в V8 8.6 (Node.js 16) и починен только в **Node.js 18.19.0 / 20.10.0 / 21.1.0** (cherry-pick `f7d000a7ae7b`). На более старых версиях этот флаг молча перестаёт писать JS-функции в perf-map, и флеймграф останется без имён. Поэтому минимальная рабочая версия — **18.19+ / 20.10+ / 21.1+**; в демо используется `node:20-alpine` (см. `apps/nuxt/Dockerfile`).
+Минимальная рабочая версия — **18.19+ / 20.10+ / 21.1+**.
 
 **Трейсы** подключаются через OpenTelemetry: Nitro-плагин [server/plugins/otel.ts](apps/nuxt/server/plugins/otel.ts) запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — в OpenTelemetry Collector через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в [chart/values.yaml](chart/values.yaml)).
 
