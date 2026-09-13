@@ -396,34 +396,6 @@ helm upgrade -n coroot coroot-operator oci://ghcr.io/coroot/charts/coroot-operat
 
 Для продакшена имеет смысл `clickhouse.shards/replicas: 2` и `keeper.replicas: 3` (по умолчанию), а также несколько реплик Coroot (`replicas: 2`), для чего потребуется вынести конфигурацию из SQLite в PostgreSQL (`postgres.*` в CR). В демо-конфигурации всё однократно ради экономии ресурсов.
 
-## Troubleshooting
-
-### 1. Node-agent не стартует / CrashLoopBackOff
-
-```bash
-kubectl logs -n coroot <node-agent-pod> --previous
-kubectl describe pod -n coroot <node-agent-pod>
-```
-
-Node-agent требует привилегированный доступ (eBPF, `/sys/kernel/tracing`, `/sys/kernel/debug`). Если кластер с Pod Security Standards (например, Talos), разрешите привилегированные поды:
-
-```bash
-kubectl label ns coroot pod-security.kubernetes.io/enforce=privileged
-```
-
-Также eBPF требует ядро Linux **5.1+** — проверьте версию ядра на нодах.
-
-### 2. Во флеймграфе JS/Python видны только анонимные адреса
-
-- Для Node.js — убедитесь, что `NODE_OPTIONS` с perf-map флагами реально применён (см. `kubectl exec ... env | grep NODE_OPTIONS`)
-- Для Python — имена Python-функций резолвит пи-профайлер node-agent (работает из коробки). Если видны только нативные фреймы `_PyEval_EvalFrameDefault`, проверьте: это CPython (не PyPy), процесс не поломан, а node-agent жив (`kubectl get pods -n coroot | grep node-agent`). `py-spy` для Coroot CE не нужен и не интегрирован.
-
-### 3. Профили Go не появляются
-
-- Heap-профили собирает `coroot-node-agent` автоматически; убедитесь, что приложение — обычный Go-бинарь (не stripped)
-- pprof-скрейп (CPU/blocking/mutex) требует аннотаций `coroot.com/profile-scrape: "true"` + `coroot.com/profile-port` на поде и доступного `/debug/pprof`
-- Проверьте, что `coroot-cluster-agent` жив: `kubectl get pods -n coroot`
-
 ## Заключение
 
 Coroot закрывает главный пробел классического мониторинга — вопрос «*почему* медленно». Непрерывное eBPF-профилирование снимает CPU-профили без единой строки кода, языковые профилировщики добавляют память и блокировки, а предустановленные инспекции автоматически находят типовые проблемы. Всё это — с метриками, логами и трейсами в одном UI.
