@@ -384,8 +384,6 @@ JVM-флаги для профилирования **не обязательны
 | Метрический кэш Coroot | `cacheTTL` | `1h` |
 | Метрики (Prometheus) | `prometheus.retention` | `1h` |
 
-> **Почему не VictoriaMetrics.** У single-node VictoriaMetrics минимальный `-retentionPeriod` — **24h** (меньше задать нельзя: VM не стартует). Поэтому в этой конфигурации метрики хранит встроенный Prometheus Coroot (`prometheus.retention: "1h"`), у которого ограничение в 1 час допустимо. Если хранение метрик 24h приемлемо — VictoriaMetrics можно вернуть как замену Prometheus через `externalPrometheus` в Coroot CR.
-
 TTL таблиц ClickHouse применяются при их создании. Если таблицы уже существовали (например, после прошлого деплоя с другими TTL), обновите их вручную. Имена таблиц и колонок времени зависят от версии Coroot; актуальные для этой конфигурации:
 
 ```sql
