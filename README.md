@@ -382,38 +382,6 @@ Shortage показывает сам факт дефицита, но не его
 
 Сами алерты Coroot строит из четырёх источников: встроенные инспекции (check-based), новые паттерны ошибок в логах, предупреждающие Kubernetes-события и кастомные PromQL-правила — так что для наших «сломанных» приложений уведомления появятся без единого правила вручную (утечка памяти, высокая утилизация CPU и т.д.).
 
-## Ограничение хранения 1 часом
-
-Хранение ограничено одним часом во всех слоях:
-
-| Слой | Параметр | Значение |
-|------|----------|----------|
-| Логи (ClickHouse) | `logsTTL` | `1h` |
-| Трейсы (ClickHouse) | `tracesTTL` | `1h` |
-| Профили (ClickHouse) | `profilesTTL` | `1h` |
-| Метрический кэш Coroot | `cacheTTL` | `1h` |
-| Метрики (Prometheus) | `prometheus.retention` | `1h` |
-
-TTL таблиц ClickHouse применяются при их создании. Если таблицы уже существовали (например, после прошлого деплоя с другими TTL), обновите их вручную. Имена таблиц и колонок времени зависят от версии Coroot; актуальные для этой конфигурации:
-
-```sql
-ALTER TABLE <db>.otel_traces       MODIFY TTL toDateTime(Timestamp) + INTERVAL 1 HOUR;
-ALTER TABLE <db>.otel_logs         MODIFY TTL toDateTime(Timestamp) + INTERVAL 1 HOUR;
-ALTER TABLE <db>.profiling_profiles MODIFY TTL toDateTime(LastSeen) + INTERVAL 1 HOUR;
-ALTER TABLE <db>.profiling_samples  MODIFY TTL toDateTime(Start) + INTERVAL 1 HOUR;
-ALTER TABLE <db>.profiling_stacks   MODIFY TTL toDateTime(LastSeen) + INTERVAL 1 HOUR;
-```
-
-Проверить текущие TTL можно так:
-
-```sql
-SELECT table, extractAll(create_table_query, 'TTL[^\n]*')
-FROM system.tables
-WHERE database = '<db>' AND name IN ('otel_traces', 'otel_logs', 'profiling_profiles', 'profiling_samples', 'profiling_stacks');
-```
-
-Кроме TTL, за диском следит **space manager** ClickHouse (по умолчанию включён): при превышении 70% занятости он удаляет старые партиции, даже если TTL ещё не наступил. Для демо с `20Gi` и 1-часовым TTL это редко срабатывает, но про него стоит помнить.
-
 ## Масштабирование и обновление
 
 ### Компоненты
