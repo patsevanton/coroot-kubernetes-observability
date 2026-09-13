@@ -71,7 +71,7 @@ flowchart TB
     Coroot --> PG[(Prometheus<br/>метрики)]
     Coroot --> CH[(ClickHouse<br/>логи/трейсы/профили)]
 
-    NodeAgent["coroot-node-agent<br/>DaemonSet, eBPF"] -->|профили CPU| Coroot
+    NodeAgent["coroot-node-agent<br/>DaemonSet, eBPF"] -->|"профили: CPU (eBPF)<br/>Go heap, Java async-profiler"| Coroot
     NodeAgent -->|метрики, логи| Coroot
     ClusterAgent["coroot-cluster-agent<br/>pprof-скрейп"] -->|Go-профили| Coroot
 
