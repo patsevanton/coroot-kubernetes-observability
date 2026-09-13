@@ -108,7 +108,7 @@ authBootstrapAdminPasswordSecret:
 
 ingress:
   className: traefik
-  host: coroot.<ip>.sslip.io
+  host: coroot_url
   path: /
 
 clickhouse:
