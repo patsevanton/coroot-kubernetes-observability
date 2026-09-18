@@ -250,24 +250,77 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 Файл `chart/values.yaml` (фрагмент):
 
 ```yaml
-env:
-  - name: NODE_OPTIONS
-    value: "--perf-basic-prof-only-functions --interpreted-frames-native-stack"
+nuxt:
+  env:
+    NODE_OPTIONS: "--perf-basic-prof-only-functions --interpreted-frames-native-stack"
+```
+
+Файл `apps/nuxt/Dockerfile` (фрагмент):
+
+```dockerfile
+ENV NODE_OPTIONS="--perf-basic-prof-only-functions --interpreted-frames-native-stack"
 ```
 
 С этими флагами во флеймграфе будут реальные имена функций `fib`/`fib`, а не анонимные адреса.
 
 Минимальная рабочая версия — **18.19+ / 20.10+ / 21.1+**.
 
-**Трейсы** подключаются через OpenTelemetry: Nitro-плагин [server/plugins/otel.ts](apps/nuxt/server/plugins/otel.ts) запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`. Экспорт — в OpenTelemetry Collector через OTLP (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` в [chart/values.yaml](chart/values.yaml)).
+**Трейсы** подключаются через OpenTelemetry: Nitro-плагин запускает `NodeSDK` с `HttpInstrumentation`, который на каждый запрос создаёт server-span, а в обработчике добавляется вложенный span `fib`.
 
-Нагрузку создаёт Job `load-nuxt`, который непрерывно вызывает `/api/cpu` (см. раздел выше).
+Файл `apps/nuxt/server/plugins/otel.ts` (фрагмент):
+
+```ts
+export default defineNitroPlugin(() => {
+  const sdk = new NodeSDK({
+    instrumentations: [new HttpInstrumentation()],
+  })
+  sdk.start()
+})
+```
+
+Экспорт — в OpenTelemetry Collector через OTLP.
+
+Файл `chart/values.yaml` (фрагмент):
+
+```yaml
+nuxt:
+  env:
+    OTEL_SERVICE_NAME: "demo-nuxt"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
+    OTEL_METRICS_EXPORTER: "none"
+    OTEL_LOGS_EXPORTER: "none"
+  load:
+    paths:
+      - /api/cpu
+```
+
+Нагрузку создаёт Job `load-nuxt`, который непрерывно вызывает `/api/cpu`.
 
 ### Демо 2: Python
 
 Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а Pyroscope eBPF-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
-**Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument` (см. [apps/python/Dockerfile](apps/python/Dockerfile)), который сам инструментирует `http.server` и экспортирует server-span'ы в OpenTelemetry Collector через OTLP. В [apps/python/app.py](apps/python/app.py) обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`.
+**Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument`, который сам инструментирует `http.server` и экспортирует server-span'ы в OpenTelemetry Collector через OTLP. В `app.py` обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`.
+
+Файл `apps/python/Dockerfile` (фрагмент):
+
+```dockerfile
+CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metrics_exporter", "none", "--logs_exporter", "none", "python", "app.py"]
+```
+
+Файл `chart/values.yaml` (фрагмент):
+
+```yaml
+python:
+  env:
+    OTEL_SERVICE_NAME: "demo-python"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
+  load:
+    paths:
+      - /cpu
+```
 
 Нагрузку создаёт Job `load-python`, который непрерывно вызывает `/cpu`.
 
@@ -300,7 +353,37 @@ golang:
 import _ "net/http/pprof"
 ```
 
-**Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер настраивается в [apps/golang/main.go](apps/golang/main.go) из переменных окружения и шлёт спаны в OpenTelemetry Collector. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot. Обратите внимание: зависимости OpenTelemetry требуют Go **1.25+**, поэтому образ собирается на `golang:1.25-alpine` (см. [apps/golang/Dockerfile](apps/golang/Dockerfile) и [apps/golang/go.mod](apps/golang/go.mod)).
+**Трейсы** — ручное инструментирование OpenTelemetry (автоинструментации для Go в Coroot нет): маршрутизатор оборачивается в `otelhttp.NewHandler`, а OTLP-экспортер читает endpoint из env и шлёт спаны в OpenTelemetry Collector. Каждый входящий запрос на `/cpu` и `/leak` становится трейсом в Coroot.
+
+Файл `apps/golang/main.go` (фрагмент):
+
+```go
+exporter, err := otlptrace.New(ctx, otlptracehttp.NewClient())
+// ...
+handler := otelhttp.NewHandler(http.DefaultServeMux, "http-server")
+```
+
+Зависимости OpenTelemetry требуют Go **1.25+**.
+
+Файл `apps/golang/Dockerfile` (фрагмент):
+
+```dockerfile
+FROM golang:1.25-alpine AS build
+```
+
+Файл `chart/values.yaml` (фрагмент):
+
+```yaml
+golang:
+  env:
+    OTEL_SERVICE_NAME: "demo-golang"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
+  load:
+    paths:
+      - /leak
+      - /cpu
+```
 
 Нагрузку создаёт Job `load-golang`, который по кругу вызывает `/leak` и `/cpu`.
 
@@ -329,15 +412,47 @@ nodeAgent:
       value: "true"
 ```
 
-JVM-флаги для профилирования **не обязательны**, но желательны: async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, поэтому часть JIT-скомпилированного до attach кода не имеет debug-информации в точках сэмплирования, из-за чего часть сэмплов во флеймграфе попадает в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами (см. [apps/java/Dockerfile](apps/java/Dockerfile)):
+JVM-флаги для профилирования **не обязательны**, но желательны: async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, поэтому часть JIT-скомпилированного до attach кода не имеет debug-информации в точках сэмплирования, из-за чего часть сэмплов во флеймграфе попадает в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами:
 
-```
--XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:+PreserveFramePointer
+Файл `apps/java/Dockerfile` (фрагмент):
+
+```dockerfile
+ENTRYPOINT ["java", \
+  "-javaagent:/app/opentelemetry-javaagent.jar", \
+  "-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints", \
+  "-XX:+PreserveFramePointer", \
+  "-XX:TieredStopAtLevel=1", \
+  "-XX:CompileCommand=dontinline,DemoJava.naiveFib", \
+  "-cp", "/app", "DemoJava"]
 ```
 
 `-XX:+UnlockDiagnosticVMOptions` — это флаг-«ключ»: он разблокирует диагностические (`Diagnostic`) опции JVM, которые по умолчанию скрыты и запрещены к использованию. Нужен он только для того, чтобы JVM приняла следующий флаг `-XX:+DebugNonSafepoints`. Без `UnlockDiagnosticVMOptions` JVM не применит `DebugNonSafepoints` (это тоже диагностическая опция) и профилировщик продолжит получать `[unknown]`. `-XX:+DebugNonSafepoints` заставляет JIT сохранять debug-информацию и в несейфпоинтах — без него инлайнируемые методы могут вообще не попадать в профиль. `-XX:+PreserveFramePointer` сохраняет регистр frame pointer, что дополнительно улучшает резолв нативных/вызывающих фреймов (полезно и для eBPF-профилировщика). Полностью убрать `[unknown]` всё равно нельзя: на горячих методах (в демо — `naiveFib`), скомпилированных до подключения агента, дебаг-инфо появляется лишь после перекомпиляции.
 
-**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: в [apps/java/Dockerfile](apps/java/Dockerfile) jar скачивается и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
+**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: jar скачивается в образе и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
+
+Файл `apps/java/Dockerfile` (фрагмент):
+
+```dockerfile
+RUN wget -q -O /opentelemetry-javaagent.jar \
+      https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar
+```
+
+Файл `chart/values.yaml` (фрагмент):
+
+```yaml
+java:
+  env:
+    OTEL_SERVICE_NAME: "demo-java"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
+    OTEL_METRICS_EXPORTER: "none"
+    OTEL_LOGS_EXPORTER: "none"
+  load:
+    paths:
+      - /cpu
+      - /alloc
+      - /lock
+```
 
 Нагрузку создаёт Job `load-java`, который по кругу вызывает `/cpu`, `/alloc` и `/lock`.
 
