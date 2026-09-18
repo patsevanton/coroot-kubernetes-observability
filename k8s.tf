@@ -135,11 +135,10 @@ provider "kubernetes" {
   }
 }
 
-# Установка Traefik как ingress-контроллера через Helm
+# Установка Traefik как ingress-контроллера через Helm (OCI-чарт)
 resource "helm_release" "traefik" {
   name             = "traefik"
-  chart            = "traefik"
-  repository       = "https://traefik.github.io/charts"
+  chart            = "oci://ghcr.io/traefik/helm/traefik"
   version          = "41.4.0"
   namespace        = "traefik"
   create_namespace = true
