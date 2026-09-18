@@ -288,8 +288,6 @@ nuxt:
     OTEL_SERVICE_NAME: "demo-nuxt"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
-    OTEL_METRICS_EXPORTER: "none"
-    OTEL_LOGS_EXPORTER: "none"
 ```
 
 ### Демо 2: Python
@@ -443,8 +441,6 @@ java:
     OTEL_SERVICE_NAME: "demo-java"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
-    OTEL_METRICS_EXPORTER: "none"
-    OTEL_LOGS_EXPORTER: "none"
 ```
 
 Для `demo-java` Coroot показывает сразу несколько типов профилей из async-profiler:
@@ -501,17 +497,9 @@ java:
 
 ## Масштабирование и обновление
 
-### Компоненты
-
-Оператор автоматически обновляет компоненты Coroot, пока версии образов не зафиксированы в Coroot CR. Сам оператор обновляется отдельно:
-
-```bash
-helm upgrade -n coroot coroot-operator oci://ghcr.io/coroot/charts/coroot-operator
-```
-
 ### Реплики и ClickHouse
 
-Для продакшена имеет смысл `clickhouse.shards/replicas: 2` и `keeper.replicas: 3` (по умолчанию), а также несколько реплик Coroot (`replicas: 2`), для чего потребуется вынести конфигурацию из SQLite в PostgreSQL (`postgres.*` в CR). В демо-конфигурации всё однократно ради экономии ресурсов.
+Для продакшена имеет смысл `clickhouse.shards/replicas: 2` и `keeper.replicas: 3` (по умолчанию), а также несколько реплик Coroot (`replicas: 2`), для чего потребуется вынести конфигурацию из SQLite в PostgreSQL (`postgres.*` в CR).
 
 ## Заключение
 
