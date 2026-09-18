@@ -91,7 +91,9 @@ kubectl -n coroot create secret generic coroot-admin-secret \
   --from-literal=admin-password=<пароль-админа>
 ```
 
-Затем создаём `coroot-values.yaml`:
+Затем создаём `coroot-values.yaml`.
+
+Файл `coroot-values.yaml`:
 
 ```yaml
 metricsRefreshInterval: "30s"
@@ -186,7 +188,9 @@ coroot-operator-xxx-yyy              1/1     Running   0          5m
 
 ### Шаг 1. OpenTelemetry Collector
 
-Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `config` чарта `open-telemetry/opentelemetry-collector`, который сливается с дефолтным конфигом: ненужные дефолтные ресиверы jaeger/zipkin/prometheus и pipelines logs/metrics явно обнулены через `null`, остаётся только HTTP-ресивер трейсов):
+Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `config` чарта `open-telemetry/opentelemetry-collector`, который сливается с дефолтным конфигом: ненужные дефолтные ресиверы jaeger/zipkin/prometheus и pipelines logs/metrics явно обнулены через `null`, остаётся только HTTP-ресивер трейсов).
+
+Файл `otel-collector-values.yaml`:
 
 ```yaml
 mode: deployment
@@ -251,7 +255,9 @@ kubectl get jobs -n demo
 
 Приложение на Nuxt 3 с единственным API-эндпоинтом `/api/cpu`, который считает наивный Фибоначчи (`fib(35)` — ~30 млн рекурсивных вызовов). Экспоненциальная сложность мгновенно видна в CPU-профиле.
 
-Ключевой момент — **символизация JS-фреймов**. eBPF-профилировщик снимает нативные стектрейсы, но без perf-map названия JS-функций не резолвятся. Node.js умеет генерировать perf-map сам, если запустить его с флагами:
+Ключевой момент — **символизация JS-фреймов**. eBPF-профилировщик снимает нативные стектрейсы, но без perf-map названия JS-функций не резолвятся. Node.js умеет генерировать perf-map сам, если запустить его с флагами.
+
+Файл `chart/values.yaml` (фрагмент):
 
 ```yaml
 env:
@@ -287,7 +293,9 @@ Go-приложение с тремя проблемами сразу:
 - **утечка горутин** — эндпоинт `/leak` запускает горутину, которая блокируется навсегда
 - **CPU-нагрузка** — эндпоинт `/cpu` с бесполезным циклом на 5 млн итераций
 
-Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под — в чарте это уже сделано через `golang.podAnnotations` в [chart/values.yaml](chart/values.yaml):
+Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под — в чарте это уже сделано через `golang.podAnnotations` в [chart/values.yaml](chart/values.yaml).
+
+Файл `chart/values.yaml` (фрагмент):
 
 ```yaml
 golang:
@@ -320,7 +328,9 @@ Java-приложение на встроенном `com.sun.net.httpserver` с 
 - **`/alloc`** — фоновая аллокация массивов (видна в Memory-профиле как `alloc_space`/`alloc_objects`)
 - **`/lock`** — два потока намеренно конкурируют за один монитор (`synchronized` + `sleep`), создавая Lock-профиль
 
-Для Java-профилирования Coroot не требуется ни Java-агент, ни изменения в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в [coroot.tf](coroot.tf)):
+Для Java-профилирования Coroot не требуется ни Java-агент, ни изменения в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в [coroot.tf](coroot.tf)).
+
+Файл `coroot-values.yaml` (фрагмент):
 
 ```yaml
 nodeAgent:
