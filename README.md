@@ -237,19 +237,9 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 
 ### Шаг 2. Четыре приложения
 
-Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart). Все четыре приложения поднимаются одной установкой чарта:
+Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
 
-```bash
-helm install demo ./chart --namespace demo --create-namespace
-```
-
-При необходимости приложения включаются по отдельности флагами `--set golang.enabled=false`, `--set java.enabled=false` и т.д. — по умолчанию включены все четыре.
-
-Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение (`load-nuxt`, `load-python`, `load-golang`, `load-java`). Job'ы в бесконечном цикле дёргают проблемные эндпоинты приложения (`curl ... > /dev/null`), поэтому под Job'а всё время `Running`, а нагрузка идёт непрерывно. Пути запросов задаются в `load.paths` блока каждого приложения в [chart/values.yaml](chart/values.yaml), а сам генератор отключается флагом `--set load.enabled=false`:
-
-```bash
-kubectl get jobs -n demo
-```
+Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение.
 
 ### Демо 1: Nuxt (Node.js)
 
