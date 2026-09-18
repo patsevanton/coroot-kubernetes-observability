@@ -290,9 +290,6 @@ nuxt:
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
     OTEL_METRICS_EXPORTER: "none"
     OTEL_LOGS_EXPORTER: "none"
-  load:
-    paths:
-      - /api/cpu
 ```
 
 ### Демо 2: Python
@@ -300,6 +297,20 @@ nuxt:
 Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а Pyroscope eBPF-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
 **Трейсы** — автоинструментация OpenTelemetry: приложение запускается через `opentelemetry-instrument`, который сам инструментирует `http.server` и экспортирует server-span'ы в OpenTelemetry Collector через OTLP. В `app.py` обработчик дополнительно оборачивается во вложенный span через `trace.get_tracer(...)`.
+
+Файл `apps/python/app.py` (фрагмент):
+
+```python
+from opentelemetry import trace
+
+tracer = trace.get_tracer("demo-python")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        with tracer.start_as_current_span(self.path):
+            ...
+```
 
 Файл `apps/python/Dockerfile` (фрагмент):
 
@@ -315,9 +326,6 @@ python:
     OTEL_SERVICE_NAME: "demo-python"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
-  load:
-    paths:
-      - /cpu
 ```
 
 **Флеймграф CPU** — открываем приложение `demo-python` → вкладка **Profiling**. Агрегированный флеймграф за выбранный интервал покажет, что почти всё CPU уходит в `naive_fib` — рекурсию с экспоненциальной сложностью. То же для `demo-nuxt`, где благодаря perf-map виден именно `fib` в JS.
@@ -375,10 +383,6 @@ golang:
     OTEL_SERVICE_NAME: "demo-golang"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
-  load:
-    paths:
-      - /leak
-      - /cpu
 ```
 
 Memory-профиль показывает устойчивый рост `alloc_space`: куча растёт на ~1 MiB/сек за счёт фонового `growLeak`. Флеймграф memory-профиля указывает точное место — `main.growLeak`, где происходит `append` в `leakBuf`.
@@ -441,11 +445,6 @@ java:
     OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
     OTEL_METRICS_EXPORTER: "none"
     OTEL_LOGS_EXPORTER: "none"
-  load:
-    paths:
-      - /cpu
-      - /alloc
-      - /lock
 ```
 
 Для `demo-java` Coroot показывает сразу несколько типов профилей из async-profiler:
