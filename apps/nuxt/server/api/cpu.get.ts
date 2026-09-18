@@ -12,7 +12,7 @@ function fib(n: number): number {
 
 export default defineEventHandler(() => {
   const span = trace.getTracer('demo-nuxt').startSpan('fib')
-  const result = fib(35) // ~18 млн вызовов — заметная CPU-нагрузка
+  const result = fib(35) // ~30 млн вызовов — заметная CPU-нагрузка
   span.end()
   return { fibonacci: result }
 })
