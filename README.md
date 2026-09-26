@@ -375,19 +375,28 @@ Go-приложение с тремя проблемами сразу:
 - **утечка горутин** — эндпоинт `/leak` запускает горутину, которая блокируется навсегда
 - **CPU-нагрузка** — эндпоинт `/cpu` с бесполезным циклом на 5 млн итераций
 
-Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под.
+Для Go Coroot собирает профили **по трём каналам**, которые частично пересекаются:
 
-Оба механизма собирают **одни и те же данные** — heap-профиль из `runtime.MemProfile` Go-рантайма, просто по разным каналам:
+| Тип профиля | eBPF (node-agent) | Go heap-профайлер (node-agent, `/proc/<pid>/mem`) | pprof-скрейп (cluster-agent, `/debug/pprof`) |
+|---|---|---|---|
+| CPU | ✅ все процессы, любой язык | ❌ | ✅ `/debug/pprof/profile` |
+| heap / Memory | ❌ | ✅ `Go Memory` (alloc/inuse × space/objects) | ✅ `Memory` (те же данные, дубль) |
+| blocking | ❌ | ❌ | ✅ `/debug/pprof/block` |
+| mutex | ❌ | ❌ | ✅ `/debug/pprof/mutex` |
+| goroutine | ❌ | ❌ | ✅ `/debug/pprof/goroutine` |
 
-- **`Go Memory`** — node-agent читает bucket-список `/proc/<pid>/mem`; сюда же входят `alloc_space`/`alloc_objects`/`inuse_space`/`inuse_objects` (это два счётчика × два разреза, а не четыре разных профиля).
-- **`Memory`** — cluster-agent скрейпит `/debug/pprof/heap`, который отдаёт тот же bucket-список.
+Ключевые правила:
 
-В списке вкладки **Profiling** такие строки дублируются: `Go Memory (inuse_space)` vs `Memory (inuse_space)`, и т.д. Различие не в данных, а в подаче — node-agent считает дельту за интервал (~60 с), pprof отдаёт кумулятив с момента старта. Поэтому включать оба механизма для heap не нужно — дублирование накладок не даёт, но и смысла в нём нет: **лучше выбрать один вариант**. Что именно оставить:
+- **CPU** — даётся и eBPF (универсально, без кода, все процессы на ноде), и pprof-скрейпом. eBPF снимает CPU «для всех языков», а pprof атрибутирует время точнее по продуктивным горутинам Go — для Go они пересекаются, но собираются разными агентами.
+- **heap** — дублируется: node-agent читает `runtime.MemProfile` из `/proc/<pid>/mem` (`Go Memory`), cluster-agent скрейпит `/debug/pprof/heap` (`Memory`). Данные одни и те же, подача разная — выбирайте один.
+- **blocking/mutex/goroutine** — только через pprof-скрейп: это внутренняя телеметрия Go-рантайма, eBPF её в принципе не видит. Доступны только при экспорте `/debug/pprof` и аннотациях пода; blocking/mutex дополнительно требуют `runtime.SetBlockProfileRate()` / `runtime.SetMutexProfileFraction()` в коде.
 
-- нужен только heap — достаточно автоматического `Go Memory` через node-agent (ноль изменений в коде, `profile-scrape` не требуется);
+Автоматический heap-профилинг `coroot-node-agent` управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`, а pprof-скрейп делает `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex/goroutines), нужно экспортировать `/debug/pprof` и аннотировать под.
+
+Оба канала собирают heap из `runtime.MemProfile` Go-рантайма; различие не в данных, а в подаче — node-agent считает дельту за интервал (~60 с), pprof отдаёт кумулятив с момента старта. Во вкладке **Profiling** строки дублируются (`Go Memory (inuse_space)` vs `Memory (inuse_space)` и т.д.), поэтому оба для heap включать не нужно. Что оставить:
+
+- нужен только heap — достаточно `Go Memory` через node-agent (ноль изменений в коде, `profile-scrape` не требуется);
 - нужны ещё CPU/blocking/mutex/goroutines — включайте pprof-скрейп, а `--go-heap-profiler=disabled` уберёт дублирующие строки `Go Memory`.
-
-Уникальные профили даёт только pprof-скрейп: `Golang (goroutines)` (`/debug/pprof/goroutine`), `CPU` (`/debug/pprof/profile`), а также blocking/mutex при включении соответствующих rate; node-agent их не собирает.
 
 ![Список типов профилей вкладки Profiling для demo-golang](screenshots/golang-profiling-types.jpg)
 
@@ -480,7 +489,8 @@ JVM-флаги для профилирования **не обязательны
 ```dockerfile
 ENTRYPOINT ["java", \
   "-javaagent:/app/opentelemetry-javaagent.jar", \
-  "-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints", \
+  "-XX:+UnlockDiagnosticVMOptions", \
+  "-XX:+DebugNonSafepoints", \
   "-XX:+PreserveFramePointer", \
   "-XX:TieredStopAtLevel=1", \
   "-XX:CompileCommand=dontinline,DemoJava.naiveFib", \
