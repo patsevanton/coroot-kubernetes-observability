@@ -206,11 +206,11 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 
 Коллектор слушает OTLP/HTTP на `4318` в namespace `otel`. Приложения обращаются к нему по адресу `http://otel-collector.otel:4318/v1/traces`, а сам коллектор пересылает батчи в Coroot на внутренний сервис `coroot-coroot.coroot:8080`.
 
-Скриншот трейсов после установки 4 demo приложений
-
-![Tracing в Coroot](screenshots/tracing-overview.jpg)
+Обзор Tracing с установленными 4 demo приложениями.
 
 В разделе трассировок пять вкладок:
+
+![Tracing в Coroot](screenshots/tracing-overview.jpg)
 
 **OVERVIEW (Обзор)** — показывает **HeatMap** — распределение запросов во времени с их статусами и длительностью. По тепловой карте сразу видно аномалии: рост числа запросов, всплески ошибок или запросы, которые стали выполняться дольше обычного. Выделив любую область на графике, можно посмотреть входящие в неё трейсы.
 
