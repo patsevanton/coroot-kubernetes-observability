@@ -58,10 +58,10 @@ Coroot собирает профили двумя способами, котор
 
 Coroot в кластере состоит из нескольких компонентов, которые разворачивает **coroot-operator**:
 
-- **coroot** — сам сервер (StatefulSet, 1 реплика): UI, API, инспекции
+- **coroot** — сам сервер: UI, API, инспекции
 - **coroot-node-agent** — DaemonSet на каждой ноде: eBPF CPU-профилировщик (плюс Go heap-профайлер, Python-инструментирование и Java через async-profiler), метрики, логи, трейсы
 - **coroot-cluster-agent** — Deployment: кластерная телеметрия + pprof-скрейп Go-приложений
-- **Prometheus** — хранилище метрик (remote-write receiver включён)
+- **Prometheus** — хранилище метрик
 - **ClickHouse** — хранилище логов, трейсов и профилей (+ clickhouse-keeper для координации)
 
 ```mermaid
@@ -157,29 +157,6 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 ### Шаг 3. Проверяем
 
-```bash
-# Переключаем kubectl на контекст вашего кластера
-kubectl config use-context <ваш-кластер>
-
-# Ждём готовности подов
-kubectl get pods -n coroot -w
-```
-
-Должно получиться примерно так:
-
-```
-NAME                                 READY   STATUS    RESTARTS   AGE
-coroot-coroot-0                      1/1     Running   0          5m
-coroot-clickhouse-shard-0-0          1/1     Running   0          5m
-coroot-clickhouse-keeper-0           1/1     Running   0          5m
-coroot-prometheus-xxx-yyy            1/1     Running   0          5m
-coroot-node-agent-abc12              1/1     Running   0          5m
-coroot-node-agent-def34              1/1     Running   0          5m
-coroot-node-agent-ghi56              1/1     Running   0          5m
-coroot-cluster-agent-xxx-yyy         1/1     Running   0          5m
-coroot-operator-xxx-yyy              1/1     Running   0          5m
-```
-
 В UI входим с логином `admin` и паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
 ## Часть 2. Четыре «сломанных» приложения
@@ -240,6 +217,16 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
 
 Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение.
+
+### Страница Applications
+
+![Страница Applications](screenshots/applications.png)
+
+Что находится на странице `Applications` интуитивно понятно, но отметим пару моментов.
+
+**`shortage` в колонке CPU** (подчёркнуто красным) — не «процент загрузки», а нехватка процессорного времени: сколько времени процессы ждали CPU, но не получали его. Причины — троттлинг по лимиту CPU либо конкуренция с другими контейнерами на ноде. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting).
+
+**Latency против Net** — это разные вещи. **Latency** — время ответа самого приложения на запросы клиентов (сколько ждут вызывающие стороны). **Net** — сетевой round-trip time на TCP-уровне между приложением и сервисами, от которых оно зависит: время обработки приложением в него не входит, измеряется только сетевая компонента. Поэтому `demo-golang` имеет Latency 5ms, но Net <0.1ms — приложение быстрое, сеть не задерживает.
 
 ### Демо 1: Nuxt (Node.js)
 
