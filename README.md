@@ -155,7 +155,7 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 ### Обзор приложения и SLO
 
-При открытии приложения Coroot показывает **SLO** (Service Level Objectives) — целевые показатели надёжности сервиса. По умолчанию отслеживаются два SLO: **Availability** (99% запросов должны быть обслужены без ошибок) и **Latency** (99% запросов должны обслуживаться быстрее 500 мс). Coroot считает SLI по eBPF-метрикам на уровне приложения и показывает фактическое соблюдение объектива, латентность в виде гистограммы с фиксированными бакетами (5 мс — 10 с) и остаток error budget.
+При открытии приложения Coroot показывает **SLO** (Service Level Objectives) — целевые показатели надёжности сервиса. По умолчанию отслеживаются два SLO: **Availability** (99% запросов должны быть обслужены без ошибок) и **Latency** (99% запросов должны обслуживаться быстрее 500 мс). Coroot считает SLI по eBPF-метрикам на уровне приложения и показывает фактическое соблюдение объектива, latency в виде гистограммы с фиксированными бакетами (5 мс — 10 с) и остаток error budget.
 
 ### Шаг 4. OpenTelemetry Collector
 
@@ -267,7 +267,7 @@ nuxt:
 
 ![Обзор и SLO приложения demo-nuxt](screenshots/nuxt-overview-slo.jpg)
 
-На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму латентности с фиксированными бакетами; вызов `/api/cpu` уходит далеко за objective 500 мс.
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency с фиксированными бакетами; вызов `/api/cpu` уходит далеко за objective 500 мс.
 
 ![CPU shortage у demo-nuxt](screenshots/nuxt-cpu.jpg)
 
@@ -319,7 +319,7 @@ python:
 
 ![Обзор и SLO приложения demo-python](screenshots/python-overview-slo.jpg)
 
-На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму латентности; вызов `/cpu` с наивным `fib(30)` и busy-loop уходит далеко за objective 500 мс.
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency; вызов `/cpu` с наивным `fib(30)` и busy-loop уходит далеко за objective 500 мс.
 
 ![CPU shortage у demo-python](screenshots/python-cpu.jpg)
 
@@ -470,7 +470,7 @@ java:
 
 ![Обзор и SLO приложения demo-java](screenshots/java-overview.jpg)
 
-На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму латентности; вызов `/cpu` с наивным `fib(35)` уходит далеко за objective 500 мс, а `/alloc` даёт рост потребления памяти.
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency; вызов `/cpu` с наивным `fib(35)` уходит далеко за objective 500 мс, а `/alloc` даёт рост потребления памяти.
 
 ![CPU shortage у demo-java](screenshots/java-cpu.jpg)
 
