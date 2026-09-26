@@ -377,6 +377,20 @@ Go-приложение с тремя проблемами сразу:
 
 Для Go Coroot использует **два комплементарных механизма**: автоматический heap-профилинг через `coroot-node-agent` (читает `runtime.MemProfile` из `/proc/<pid>/mem`, без изменений в коде; управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`) и pprof-скрейп через `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex), нужно экспортировать `/debug/pprof` и аннотировать под.
 
+Оба механизма собирают **одни и те же данные** — heap-профиль из `runtime.MemProfile` Go-рантайма, просто по разным каналам:
+
+- **`Go Memory`** — node-agent читает bucket-список `/proc/<pid>/mem`; сюда же входят `alloc_space`/`alloc_objects`/`inuse_space`/`inuse_objects` (это два счётчика × два разреза, а не четыре разных профиля).
+- **`Memory`** — cluster-agent скрейпит `/debug/pprof/heap`, который отдаёт тот же bucket-список.
+
+В списке вкладки **Profiling** такие строки дублируются: `Go Memory (inuse_space)` vs `Memory (inuse_space)`, и т.д. Различие не в данных, а в подаче — node-agent считает дельту за интервал (~60 с), pprof отдаёт кумулятив с момента старта. Поэтому включать оба механизма для heap не нужно — дублирование накладок не даёт, но и смысла в нём нет: **лучше выбрать один вариант**. Что именно оставить:
+
+- нужен только heap — достаточно автоматического `Go Memory` через node-agent (ноль изменений в коде, `profile-scrape` не требуется);
+- нужны ещё CPU/blocking/mutex/goroutines — включайте pprof-скрейп, а `--go-heap-profiler=disabled` уберёт дублирующие строки `Go Memory`.
+
+Уникальные профили даёт только pprof-скрейп: `Golang (goroutines)` (`/debug/pprof/goroutine`), `CPU` (`/debug/pprof/profile`), а также blocking/mutex при включении соответствующих rate; node-agent их не собирает.
+
+![Список типов профилей вкладки Profiling для demo-golang](screenshots/golang-profiling-types.jpg)
+
 Файл `chart/values.yaml` (фрагмент):
 
 ```yaml
