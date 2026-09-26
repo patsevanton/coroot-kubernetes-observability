@@ -159,10 +159,6 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 В UI входим с логином `admin` и паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
-## Часть 2. Четыре «сломанных» приложения
-
-Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
-
 ![Страница Applications](screenshots/applications.png)
 
 Что находится на странице `Applications` интуитивно понятно, но отметим пару моментов.
@@ -171,56 +167,11 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 **Latency против Net** — это разные вещи. **Latency** — время ответа самого приложения на запросы клиентов (сколько ждут вызывающие стороны). **Net** — сетевой round-trip time на TCP-уровне между приложением и сервисами, от которых оно зависит: время обработки приложением в него не входит, измеряется только сетевая компонента. Поэтому `demo-golang` имеет Latency 5ms, но Net <0.1ms — приложение быстрое, сеть не задерживает.
 
-### Шаг 1. OpenTelemetry Collector
+## Часть 2. Четыре «сломанных» приложения
 
-Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `config` чарта `open-telemetry/opentelemetry-collector`, который сливается с дефолтным конфигом: ненужные дефолтные ресиверы jaeger/zipkin/prometheus и pipelines logs/metrics явно обнулены через `null`, остаётся только HTTP-ресивер трейсов).
+Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
 
-Файл `otel-collector-values.yaml`:
-
-```yaml
-mode: deployment
-
-# Короткое и предсказуемое имя ресурсов (иначе будет <release>-opentelemetry-collector).
-fullnameOverride: otel-collector
-
-image:
-  repository: otel/opentelemetry-collector-contrib
-
-config:
-  receivers:
-    otlp:
-      protocols:
-        http:
-          endpoint: 0.0.0.0:4318
-
-  exporters:
-    otlp_http/coroot:
-      endpoint: "http://coroot-coroot.coroot:8080"
-
-  service:
-    pipelines:
-      # Дефолтные pipelines logs/metrics не нужны — глушим.
-      logs: null
-      metrics: null
-      # traces сливается с дефолтным, поэтому список receivers переопределяем
-      # целиком (без jaeger/zipkin) и меняем exporters на coroot.
-      traces:
-        receivers: [otlp]
-        processors: [batch]
-        exporters: [otlp_http/coroot]
-```
-
-Устанавливаем коллектор:
-
-```bash
-helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-helm install otel-collector open-telemetry/opentelemetry-collector \
-  --version 0.173.1 -n otel --create-namespace -f otel-collector-values.yaml
-```
-
-Коллектор слушает OTLP/HTTP на `4318` в namespace `otel`. Приложения обращаются к нему по адресу `http://otel-collector.otel:4318/v1/traces`, а сам коллектор пересылает батчи в Coroot на внутренний сервис `coroot-coroot.coroot:8080`.
-
-### Шаг 2. Четыре приложения
+### Шаг 1. Четыре приложения
 
 Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
 
@@ -455,6 +406,55 @@ java:
 - **Lock** — время ожидания монитора (`delay`) и число контеншенов (`contentions`) на `synchronized`-блоке
 
 Рядом с профилями async-profiler экспортирует одноимённые метрики (`container_jvm_alloc_bytes_total`, `container_jvm_lock_contentions_total`, `container_jvm_profiling_status` и др.) — по ним удобно ловить аномалии на графике и проваливаться в флеймграф.
+
+### Шаг 2. OpenTelemetry Collector
+
+Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `config` чарта `open-telemetry/opentelemetry-collector`, который сливается с дефолтным конфигом: ненужные дефолтные ресиверы jaeger/zipkin/prometheus и pipelines logs/metrics явно обнулены через `null`, остаётся только HTTP-ресивер трейсов).
+
+Файл `otel-collector-values.yaml`:
+
+```yaml
+mode: deployment
+
+# Короткое и предсказуемое имя ресурсов (иначе будет <release>-opentelemetry-collector).
+fullnameOverride: otel-collector
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+  exporters:
+    otlp_http/coroot:
+      endpoint: "http://coroot-coroot.coroot:8080"
+
+  service:
+    pipelines:
+      # Дефолтные pipelines logs/metrics не нужны — глушим.
+      logs: null
+      metrics: null
+      # traces сливается с дефолтным, поэтому список receivers переопределяем
+      # целиком (без jaeger/zipkin) и меняем exporters на coroot.
+      traces:
+        receivers: [otlp]
+        processors: [batch]
+        exporters: [otlp_http/coroot]
+```
+
+Устанавливаем коллектор:
+
+```bash
+helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+helm install otel-collector open-telemetry/opentelemetry-collector \
+  --version 0.173.1 -n otel --create-namespace -f otel-collector-values.yaml
+```
+
+Коллектор слушает OTLP/HTTP на `4318` в namespace `otel`. Приложения обращаются к нему по адресу `http://otel-collector.otel:4318/v1/traces`, а сам коллектор пересылает батчи в Coroot на внутренний сервис `coroot-coroot.coroot:8080`.
 
 #### Что видно в Coroot
 
