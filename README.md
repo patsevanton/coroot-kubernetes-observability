@@ -157,7 +157,7 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 ### Шаг 3. Проверяем
 
-В UI входим с логином `admin` и паролем администратора (`coroot_admin_password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
+В UI входим с логином `admin` и паролем администратора, заданным на Шаге 1 (`admin-password`). Оператор уже сконфигурировал Prometheus и ClickHouse и создал проект `default`, поэтому ничего настраивать не нужно — сразу переходим к приложениям.
 
 ![Страница Applications](screenshots/applications.jpg)
 
@@ -169,15 +169,9 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 ## Часть 2. Четыре «сломанных» приложения
 
-Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
+Чтобы продемонстрировать профилирование, задеплоим четыре приложения с намеренно внесёнными проблемами. Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart). Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение.
 
-### Шаг 1. Четыре приложения
-
-Исходники — в каталоге [apps](apps), деплой — Helm-чартом [chart](chart).
-
-Вместе с приложениями чарт поднимает **генераторы нагрузки** — по одному Kubernetes Job на каждое включённое приложение.
-
-### Демо 1: Nuxt (Node.js)
+### Шаг 1. Nuxt (Node.js)
 
 Приложение на Nuxt 3 с единственным API-эндпоинтом `/api/cpu`, который считает наивный Фибоначчи (`fib(35)` — ~30 млн рекурсивных вызовов). Экспоненциальная сложность мгновенно видна в CPU-профиле.
 
@@ -244,7 +238,7 @@ nuxt:
 
 Алерты наружу — **Project Settings → Integrations**: Slack, Microsoft Teams, PagerDuty, Opsgenie, webhook. Маршрутизация по [категориям приложений](https://docs.coroot.com/configuration/application-categories#notification-routing) и типам событий: **Incidents**, **Deployments**, **Alerts**. Источники алертов: инспекции, новые паттерны в логах, Kubernetes-события, кастомный PromQL. Для этого демо хватит инспекции по CPU — без правил вручную.
 
-### Демо 2: Python
+### Шаг 2. Python
 
 Python-приложение на стандартном `http.server` с эндпоинтом `/cpu`: наивный `fib(30)` плюс busy-loop с `math.sqrt`. eBPF-профилировщик Coroot снимает CPU-профиль Python-процесса без каких-либо агентов и изменений кода, а Pyroscope eBPF-профайлер резолвит Python-фреймы, так что во флеймграфе виден именно `naive_fib`.
 
@@ -290,7 +284,7 @@ python:
 
 ![CPU shortage у demo-python](screenshots/python-cpu.jpg)
 
-На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. HeatMap и выделение области — как в Демо 1. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
+На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. HeatMap и выделение области — как в Шаге 1. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
 
 **Флеймграф CPU** — открываем приложение `demo-python` → вкладка **Profiling**. Агрегированный флеймграф за выбранный интервал покажет CPU в `naive_fib` (рекурсия с экспоненциальной сложностью) и в busy-loop с `math.sqrt`. То же для `demo-nuxt`, где благодаря perf-map виден именно `fib` в JS.
 
@@ -298,7 +292,7 @@ python:
 
 Режим **Comparison** подсветит красным функции, которые стали есть больше CPU относительно прошлого интервала — удобно ловить регрессии после релиза.
 
-### Демо 3: Golang
+### Шаг 3. Golang
 
 Go-приложение с тремя проблемами сразу:
 
@@ -367,13 +361,11 @@ Memory-профиль показывает устойчивый рост `alloc_
 
 ![CPU shortage у demo-golang](screenshots/golang-cpu.jpg)
 
-На вкладке **Tracing** — server-span на каждый `/cpu` и `/leak` (`otelhttp.NewHandler`). HeatMap и выделение области — как в Демо 1. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили, в том числе heap: `main.growLeak`.
+На вкладке **Tracing** — server-span на каждый `/cpu` и `/leak` (`otelhttp.NewHandler`). HeatMap и выделение области — как в Шаге 1. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили, в том числе heap: `main.growLeak`.
 
 ![Tracing demo-golang](screenshots/golang-tracing.jpg)
 
-![Tracing demo-golang](screenshots/tracing-demo-golang.jpg)
-
-### Демо 4: Java
+### Шаг 4. Java
 
 - **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` в coroot-values.yaml. Java-агент для профилирования не нужен: node-agent сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API. (Java-агент в [apps/java/Dockerfile](apps/java/Dockerfile) — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
 
@@ -437,7 +429,25 @@ java:
 
 Рядом с профилями async-profiler экспортирует одноимённые метрики (`container_jvm_alloc_bytes_total`, `container_jvm_lock_contentions_total`, `container_jvm_profiling_status` и др.) — по ним удобно ловить аномалии на графике и проваливаться в флеймграф.
 
-### Шаг 2. OpenTelemetry Collector
+#### Что видно в Coroot
+
+При открытии приложения Coroot показывает **SLO** (Service Level Objectives) — целевые показатели надёжности сервиса. По умолчанию отслеживаются два SLO: **Availability** (99% запросов должны быть обслужены без ошибок) и **Latency** (99% запросов должны обслуживаться быстрее 500 мс). Coroot считает SLI по eBPF-метрикам на уровне приложения и показывает фактическое соблюдение объектива, латентность в виде гистограммы с фиксированными бакетами (5 мс — 10 с) и остаток error budget.
+
+![Обзор и SLO приложения demo-java](screenshots/java-overview.jpg)
+
+Инспекции подсветят рост потребления памяти (аллокации в `DemoJava.allocate`) и высокую утилизацию CPU; **shortage** в колонке **CPU** покажет ожидание процессора на `/cpu`. Lock-контеншены — в Lock-профиле и в `container_jvm_lock_contentions_total`.
+
+![CPU shortage у demo-java](screenshots/java-cpu.jpg)
+
+На вкладке **Profiling** async-profiler отдаёт сразу несколько типов профилей: **CPU** (почти всё время в `naiveFib`), **Memory** (рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`) и **Lock** (время ожидания монитора и число контеншенов на `synchronized`-блоке).
+
+![JVM-профиль demo-java](screenshots/java-jvm.jpg)
+
+На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). HeatMap и выделение области — как в Шаге 1. От аномалии CPU — во флеймграф `naiveFib`, от роста alloc — в Memory-профиль, из медленного span'а — в логи и профили.
+
+![Флеймграф CPU demo-java](screenshots/java-profiling.jpg)
+
+### Шаг 5. OpenTelemetry Collector
 
 Скорее всего, у вас уже установлен **OpenTelemetry Collector**, поэтому конфигурируем отправку трейсов через него — он принимает трейсы от всех четырёх приложений по OTLP/HTTP (порт `4318`), батчит их и пересылает в Coroot. Конфигурация — в [otel-collector-values.yaml](otel-collector-values.yaml) в корне репозитория (используется `config` чарта `open-telemetry/opentelemetry-collector`, который сливается с дефолтным конфигом: ненужные дефолтные ресиверы jaeger/zipkin/prometheus и pipelines logs/metrics явно обнулены через `null`, остаётся только HTTP-ресивер трейсов).
 
@@ -488,23 +498,6 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 
 ![Tracing в Coroot](screenshots/tracing-overview.jpg)
 
-#### Что видно в Coroot
-
-При открытии приложения Coroot показывает **SLO** (Service Level Objectives) — целевые показатели надёжности сервиса. По умолчанию отслеживаются два SLO: **Availability** (99% запросов должны быть обслужены без ошибок) и **Latency** (99% запросов должны обслуживаться быстрее 500 мс). Coroot считает SLI по eBPF-метрикам на уровне приложения и показывает фактическое соблюдение объектива, латентность в виде гистограммы с фиксированными бакетами (5 мс — 10 с) и остаток error budget.
-
-![Обзор и SLO приложения demo-java](screenshots/java-overview.jpg)
-
-Инспекции подсветят рост потребления памяти (аллокации в `DemoJava.allocate`) и высокую утилизацию CPU; **shortage** в колонке **CPU** покажет ожидание процессора на `/cpu`. Lock-контеншены — в Lock-профиле и в `container_jvm_lock_contentions_total`.
-
-![CPU shortage у demo-java](screenshots/java-cpu.jpg)
-
-На вкладке **Profiling** async-profiler отдаёт сразу несколько типов профилей: **CPU** (почти всё время в `naiveFib`), **Memory** (рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`) и **Lock** (время ожидания монитора и число контеншенов на `synchronized`-блоке).
-
-![JVM-профиль demo-java](screenshots/java-jvm.jpg)
-
-На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). HeatMap и выделение области — как в Демо 1. От аномалии CPU — во флеймграф `naiveFib`, от роста alloc — в Memory-профиль, из медленного span'а — в логи и профили.
-
-![Флеймграф CPU demo-java](screenshots/java-profiling.jpg)
 
 ## Масштабирование и обновление
 
