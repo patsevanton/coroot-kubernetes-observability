@@ -64,21 +64,7 @@ Coroot в кластере состоит из нескольких компон
 - **Prometheus** — хранилище метрик
 - **ClickHouse** — хранилище логов, трейсов и профилей (+ clickhouse-keeper для координации)
 
-```mermaid
-flowchart TB
-    Coroot["Coroot<br/>(UI, API, инспекции)"]
-
-    Coroot --> PG[(Prometheus<br/>метрики)]
-    Coroot --> CH[(ClickHouse<br/>логи/трейсы/профили)]
-
-    NodeAgent["coroot-node-agent<br/>DaemonSet, eBPF"] -->|"профили: CPU (eBPF)<br/>Go heap, Java async-profiler"| Coroot
-    NodeAgent -->|метрики, логи| Coroot
-    ClusterAgent["coroot-cluster-agent<br/>pprof-скрейп"] -->|Go-профили| Coroot
-
-    ClusterAgent -->|"скрейп /debug/pprof"| App["demo-приложения"]
-    App -->|"OTLP (трейсы)"| OTel["OpenTelemetry Collector"]
-    OTel -->|OTLP| Coroot
-```
+<video src="diagrams/coroot.mp4" controls width="100%"></video>
 
 ### Шаг 1. Установка Coroot в кластер
 
