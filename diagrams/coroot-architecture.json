@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Coroot — сбор телеметрии",
+    "quality_profile": "showcase",
+    "animation": "trace"
+  },
+  "components": [
+    { "id": "app", "type": "frontend", "label": "demo-приложения", "sublabel": "OTLP + /debug/pprof", "pos": [40, 200], "size": [160, 64] },
+    { "id": "otel", "type": "backend", "label": "OTel Collector", "sublabel": "OpenTelemetry", "pos": [40, 400], "size": [160, 64] },
+    { "id": "cluster", "type": "backend", "label": "coroot-cluster-agent", "sublabel": "pprof-скрейп", "pos": [300, 60], "size": [180, 64] },
+    { "id": "node", "type": "backend", "label": "coroot-node-agent", "sublabel": "DaemonSet · eBPF", "pos": [300, 400], "size": [180, 64] },
+    { "id": "coroot", "type": "backend", "label": "Coroot", "sublabel": "UI, API, инспекции", "pos": [620, 230], "size": [160, 70], "tag": "в кластере" },
+    { "id": "pg", "type": "database", "label": "Prometheus", "sublabel": "метрики", "pos": [920, 100], "size": [150, 60] },
+    { "id": "ch", "type": "database", "label": "ClickHouse", "sublabel": "логи · трейсы · профили", "pos": [920, 400], "size": [160, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Kubernetes-кластер", "wraps": ["app", "otel", "cluster", "node", "coroot"] }
+  ],
+  "connections": [
+    { "id": "app-otel", "from": "app", "to": "otel", "label": "OTLP (трейсы)", "variant": "emphasis", "labelDy": 40 },
+    { "id": "otel-coroot", "from": "otel", "to": "coroot", "label": "OTLP" },
+    { "id": "cluster-app", "from": "cluster", "to": "app", "label": "скрейп /debug/pprof", "variant": "dashed" },
+    { "id": "cluster-coroot", "from": "cluster", "to": "coroot", "label": "Go-профили" },
+    { "id": "node-coroot", "from": "node", "to": "coroot", "label": "метрики, логи · профили CPU (eBPF), Go heap, Java" },
+    { "id": "coroot-pg", "from": "coroot", "to": "pg", "label": "метрики" },
+    { "id": "coroot-ch", "from": "coroot", "to": "ch", "label": "логи / трейсы / профили" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Агенты", "items": ["coroot-node-agent — DaemonSet, eBPF-профили CPU, метрики и логи", "coroot-cluster-agent — pprof-скрейп Go-приложений"] },
+    { "dot": "emerald", "title": "Доставка", "items": ["Трейсы приложений идут через OpenTelemetry Collector по OTLP", "Coroot агрегирует всё в единый интерфейс"] },
+    { "dot": "rose", "title": "Хранение", "items": ["Prometheus — метрики", "ClickHouse — логи, трейсы и профили"] }
+  ]
+}
