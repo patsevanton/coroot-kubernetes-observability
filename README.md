@@ -349,13 +349,21 @@ golang:
 
 Memory-профиль показывает устойчивый рост `alloc_space`: куча растёт на ~1 MiB/сек за счёт фонового `growLeak`. Флеймграф memory-профиля указывает точное место — `main.growLeak`, где происходит `append` в `leakBuf`.
 
+![Флеймграф memory-профиля demo-golang](screenshots/golang-profiling.jpg)
+
 Горутины-утечки видны косвенно: число горутин растёт (`/healthz` отдаёт `runtime.NumGoroutine()`), а Coroot связывает это с ростом потребления и деградацией SLO.
 
 #### Что видно в Coroot
 
+![Обзор приложения demo-golang](screenshots/golang-overview.jpg)
+
 Инспекции подсветят постоянный рост потребления памяти и высокую утилизацию CPU; **shortage** в колонке **CPU** покажет ожидание процессора на `/cpu`. Уведомления по утечке и CPU появятся из инспекций без правил вручную.
 
+![CPU shortage у demo-golang](screenshots/golang-cpu.jpg)
+
 На вкладке **Tracing** — server-span на каждый `/cpu` и `/leak` (`otelhttp.NewHandler`). HeatMap и выделение области — как в Демо 1. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили, в том числе heap: `main.growLeak`.
+
+![Tracing demo-golang](screenshots/golang-tracing.jpg)
 
 ### Демо 4: Java
 
