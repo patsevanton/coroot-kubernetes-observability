@@ -236,9 +236,9 @@ nuxt:
 
 На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. HeatMap показывает распределение запросов по времени, статусам и длительности. Свободной фильтрации трасс по атрибутам нет: ось X задаёт `tsRange`, ось Y — `durRange`, статус — метка `err`. «Show error traces» фильтрует по `StatusCode='STATUS_CODE_ERROR'`, «Show latency SLO violations» — по `Duration >= SLO objective`, селектор `sources` переключает OpenTelemetry/eBPF. По выделенной области Coroot найдёт конкретные спаны; в сравнении подсветит замедлившиеся операции; по кастомным атрибутам — чем аномальные запросы отличаются от остальных. От аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
 
-![Флеймграф CPU demo-nuxt](screenshots/nuxt-profiling1.jpg)
+![Tracing demo-nuxt](screenshots/nuxt-tracing.jpg)
 
-![Comparison флеймграфа demo-nuxt](screenshots/nuxt-profiling2.jpg)
+![Флеймграф CPU demo-nuxt](screenshots/nuxt-profiling.jpg)
 
 Алерты наружу — **Project Settings → Integrations**: Slack, Microsoft Teams, PagerDuty, Opsgenie, webhook. Маршрутизация по [категориям приложений](https://docs.coroot.com/configuration/application-categories#notification-routing) и типам событий: **Incidents**, **Deployments**, **Alerts**. Источники алертов: инспекции, новые паттерны в логах, Kubernetes-события, кастомный PromQL. Для этого демо хватит инспекции по CPU — без правил вручную.
 
