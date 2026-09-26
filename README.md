@@ -228,9 +228,17 @@ nuxt:
 
 #### Что видно в Coroot
 
+![Обзор приложения demo-nuxt](screenshots/nuxt-overview.png)
+
 Инспекции подсветят высокую утилизацию CPU одним подом. В колонке **CPU** — **shortage**: сколько времени процессы ждали CPU, но не получали его. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting). Delay N ms/сек означает, что к каждой секунде обработки запросов добавляется N ms задержки; в [документации Coroot](https://docs.coroot.com/inspections/cpu/) это разбирают на примере 500 ms/сек. Это не замер демо: конкретная цифра в UI зависит от нагрузки и лимита. У `demo-nuxt` лимит CPU 500m, процесс упирается в квоту — delay обычно порядка сотен миллисекунд в секунду.
 
+![CPU shortage у demo-nuxt](screenshots/nuxt-cpu.png)
+
 На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. HeatMap показывает распределение запросов по времени, статусам и длительности. Свободной фильтрации трасс по атрибутам нет: ось X задаёт `tsRange`, ось Y — `durRange`, статус — метка `err`. «Show error traces» фильтрует по `StatusCode='STATUS_CODE_ERROR'`, «Show latency SLO violations» — по `Duration >= SLO objective`, селектор `sources` переключает OpenTelemetry/eBPF. По выделенной области Coroot найдёт конкретные спаны; в сравнении подсветит замедлившиеся операции; по кастомным атрибутам — чем аномальные запросы отличаются от остальных. От аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
+
+![Флеймграф CPU demo-nuxt](screenshots/nuxt-profiling1.png)
+
+![Comparison флеймграфа demo-nuxt](screenshots/nuxt-profiling2.png)
 
 Алерты наружу — **Project Settings → Integrations**: Slack, Microsoft Teams, PagerDuty, Opsgenie, webhook. Маршрутизация по [категориям приложений](https://docs.coroot.com/configuration/application-categories#notification-routing) и типам событий: **Incidents**, **Deployments**, **Alerts**. Источники алертов: инспекции, новые паттерны в логах, Kubernetes-события, кастомный PromQL. Для этого демо хватит инспекции по CPU — без правил вручную.
 
