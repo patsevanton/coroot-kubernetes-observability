@@ -149,7 +149,14 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 Что находится на странице `Applications` интуитивно понятно, но отметим пару моментов.
 
-**`shortage` в колонке CPU** (подчёркнуто красным) — не «процент загрузки», а нехватка процессорного времени: сколько времени процессы ждали CPU, но не получали его. Причины — троттлинг по лимиту CPU либо конкуренция с другими контейнерами на ноде. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting).
+**`shortage` в колонке CPU** (подчёркнуто красным) — не «процент загрузки», а нехватка процессорного времени: сколько времени процессы ждали CPU, но не получали его. Причины — троттлинг по лимиту CPU либо конкуренция с другими контейнерами на ноде. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting). Delay N ms/сек означает, что к каждой секунде обработки запросов добавляется N ms задержки. [Документация Coroot по CPU](https://docs.coroot.com/inspections/cpu/).
+
+Эту же колонку вернём в «Части 2», где shortage подсветит источник задержек в каждом из четырёх сломанных приложений:
+
+- **demo-nuxt** — высокую утилизацию CPU одним подом;
+- **demo-python** — ожидание процессора из-за `naive_fib` и busy-loop (утечки памяти нет);
+- **demo-golang** — ожидание на `/cpu` при постоянном росте памяти и утилизации CPU (утечки и CPU алертятся инспекциями без правил вручную);
+- **demo-java** — ожидание на `/cpu` при росте памяти (`DemoJava.allocate`); lock-контеншены — в Lock-профиле и `container_jvm_lock_contentions_total`.
 
 **Latency против Net** — это разные вещи. **Latency** — время ответа самого приложения на запросы клиентов (сколько ждут вызывающие стороны). **Net** — сетевой round-trip time на TCP-уровне между приложением и сервисами, от которых оно зависит: время обработки приложением в него не входит, измеряется только сетевая компонента. Поэтому `demo-golang` имеет Latency 5ms, но Net <0.1ms — приложение быстрое, сеть не задерживает.
 
@@ -212,7 +219,7 @@ nuxt:
 
 ![Обзор и SLO приложения demo-nuxt](screenshots/nuxt-overview-slo.jpg)
 
-Инспекции подсветят высокую утилизацию CPU одним подом. В колонке **CPU** — **shortage**: сколько времени процессы ждали CPU, но не получали его. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting). Delay N ms/сек означает, что к каждой секунде обработки запросов добавляется N ms задержки. [Документация Coroot по CPU](https://docs.coroot.com/inspections/cpu/).
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму латентности с фиксированными бакетами; вызов `/api/cpu` уходит далеко за objective 500 мс.
 
 ![CPU shortage у demo-nuxt](screenshots/nuxt-cpu.jpg)
 
@@ -266,7 +273,7 @@ python:
 
 ![Обзор и SLO приложения demo-python](screenshots/python-overview-slo.jpg)
 
-Инспекции подсветят высокую утилизацию CPU (утечки памяти в этом приложении нет). **shortage** в колонке **CPU** покажет, сколько времени процесс ждал процессор из-за `naive_fib` и busy-loop.
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму латентности; вызов `/cpu` с наивным `fib(30)` и busy-loop уходит далеко за objective 500 мс.
 
 ![CPU shortage у demo-python](screenshots/python-cpu.jpg)
 
@@ -343,7 +350,7 @@ Memory-профиль показывает устойчивый рост `alloc_
 
 ![Обзор и SLO приложения demo-golang](screenshots/golang-overview-slo.jpg)
 
-Инспекции подсветят постоянный рост потребления памяти и высокую утилизацию CPU; **shortage** в колонке **CPU** покажет ожидание процессора на `/cpu`. Уведомления по утечке и CPU появятся из инспекций без правил вручную.
+На overview-slo видно, как рост памяти и утечка горутин деградируют соблюдение двух SLO (Availability и Latency); вызовы `/cpu` и `/leak` уходят за objective 500 мс.
 
 ![CPU shortage у demo-golang](screenshots/golang-cpu.jpg)
 
@@ -421,7 +428,7 @@ java:
 
 ![Обзор и SLO приложения demo-java](screenshots/java-overview.jpg)
 
-Инспекции подсветят рост потребления памяти (аллокации в `DemoJava.allocate`) и высокую утилизацию CPU; **shortage** в колонке **CPU** покажет ожидание процессора на `/cpu`. Lock-контеншены — в Lock-профиле и в `container_jvm_lock_contentions_total`.
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму латентности; вызов `/cpu` с наивным `fib(35)` уходит далеко за objective 500 мс, а `/alloc` даёт рост потребления памяти.
 
 ![CPU shortage у demo-java](screenshots/java-cpu.jpg)
 
