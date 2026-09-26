@@ -230,7 +230,7 @@ nuxt:
 
 ![Обзор приложения demo-nuxt](screenshots/nuxt-overview.jpg)
 
-Инспекции подсветят высокую утилизацию CPU одним подом. В колонке **CPU** — **shortage**: сколько времени процессы ждали CPU, но не получали его. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting). Delay N ms/сек означает, что к каждой секунде обработки запросов добавляется N ms задержки; в [документации Coroot](https://docs.coroot.com/inspections/cpu/) это разбирают на примере 500 ms/сек. Это не замер демо: конкретная цифра в UI зависит от нагрузки и лимита. У `demo-nuxt` лимит CPU 500m, процесс упирается в квоту — delay обычно порядка сотен миллисекунд в секунду.
+Инспекции подсветят высокую утилизацию CPU одним подом. В колонке **CPU** — **shortage**: сколько времени процессы ждали CPU, но не получали его. Метрика — `container_resources_cpu_delay_seconds_total` (Linux delay accounting). Delay N ms/сек означает, что к каждой секунде обработки запросов добавляется N ms задержки. [Документация Coroot по CPU](https://docs.coroot.com/inspections/cpu/).
 
 ![CPU shortage у demo-nuxt](screenshots/nuxt-cpu.jpg)
 
