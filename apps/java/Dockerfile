@@ -19,7 +19,8 @@ EXPOSE 8080
 # трейсы: OTel javaagent (конфигурация из env OTEL_*)
 ENTRYPOINT ["java", \
   "-javaagent:/app/opentelemetry-javaagent.jar", \
-  "-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints", \
+  "-XX:+UnlockDiagnosticVMOptions", \
+  "-XX:+DebugNonSafepoints", \
   "-XX:+PreserveFramePointer", \
   "-XX:TieredStopAtLevel=1", \
   "-XX:CompileCommand=dontinline,DemoJava.naiveFib", \
