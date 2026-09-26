@@ -154,6 +154,9 @@ Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, котор�
 
 Встроенная система алертинга на базе преднастроенных алертов, которая автоматически выявляет проблемы в приложениях и инфраструктуре Kubernetes, помогая инженерам быстро находить первопричины сбоев. 
 
+Алерты наружу — **Project Settings → Integrations**: Slack, Microsoft Teams, PagerDuty, Opsgenie, webhook. Маршрутизация по [категориям приложений](https://docs.coroot.com/configuration/application-categories#notification-routing) и типам событий: **Incidents**, **Deployments**, **Alerts**. Источники алертов: инспекции, новые паттерны в логах, Kubernetes-события, кастомный PromQL.
+
+
 ### Service Map
 
 ![Service Map](screenshots/service-map.jpg)
@@ -294,13 +297,16 @@ nuxt:
 
 ![CPU shortage у demo-nuxt](screenshots/nuxt-cpu.jpg)
 
+Инспекция CPU выводит две проверки: **Node CPU utilization** — `ok` (загрузка ноды ниже порога 80%), и **Container CPU utilization** — `high CPU utilization of 1 container`: контейнер `demo-nuxt` превышает 80% своего CPU-лимита.
+
 ![Tracing demo-nuxt](screenshots/nuxt-tracing.jpg)
 
 На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. Из аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
 
 ![Флеймграф CPU demo-nuxt](screenshots/nuxt-profiling.jpg)
 
-Алерты наружу — **Project Settings → Integrations**: Slack, Microsoft Teams, PagerDuty, Opsgenie, webhook. Маршрутизация по [категориям приложений](https://docs.coroot.com/configuration/application-categories#notification-routing) и типам событий: **Incidents**, **Deployments**, **Alerts**. Источники алертов: инспекции, новые паттерны в логах, Kubernetes-события, кастомный PromQL.
+На скриншоте представлен интерфейс платформы мониторинга Coroot, где открыта вкладка Profiling для инспектирования Nuxt-приложения (demo-nuxt). В верхней части экрана расположен график загрузки процессора (CPU usage by instance, cores), полученный с помощью eBPF-профилирования, который показывает стабильное и относительно низкое потребление ресурсов во времени. Ниже отображается подробная пламенная диаграмма (Flame Graph) с цветовым разделением различных инстансов и функций, где один из элементов наведен курсором мыши, вызывая всплывающее окно с детальной метрикой выполнения конкретной функции (modern...) — в частности, указано время работы процессора (33 ms, 16%) и общее системное время (407 ms).
+
 
 ### Шаг 2. Python
 
@@ -334,7 +340,7 @@ CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metr
 
 ![Обзор и SLO приложения demo-python](screenshots/python-overview-slo.jpg)
 
-На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency; вызов `/cpu` с наивным `fib(30)` и busy-loop уходит далеко за objective 500 мс.
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency; вызов `/cpu` с наивным `fib(30)` и busy-loop выходит за предел в 500 мс.
 
 ![CPU shortage у demo-python](screenshots/python-cpu.jpg)
 
@@ -366,8 +372,7 @@ Go-приложение с тремя проблемами сразу:
 
 | Нужны профили | Что делать | Изменения в коде |
 |---|---|---|
-| только heap | ничего: `Go Memory` собирает node-agent из коробки | ноль |
-| heap + CPU | тоже ничего: eBPF снимает CPU, node-agent — `Go Memory` | ноль |
+| heap / CPU | ничего: `Go Memory` собирает node-agent из коробки, CPU — eBPF | не нужны |
 | blocking / mutex / goroutine | eBPF их не даёт — нужен pprof-скрейп (`/debug/pprof`), а `--go-heap-profiler=disabled` уберёт дублирующие `Go Memory` | `import _ "net/http/pprof"` + аннотации пода |
 
 То есть для heap и CPU Go-приложение не требует ни правки кода, ни `profile-scrape` — оба канала работают извне (eBPF + чтение `/proc/<pid>/mem`). pprof-скрейп нужен только ради профилей, которых нет в eBPF: blocking, mutex и goroutine.
