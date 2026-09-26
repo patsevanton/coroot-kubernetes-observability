@@ -303,13 +303,17 @@ nuxt:
 
 ![Обзор и SLO приложения demo-nuxt](screenshots/nuxt-overview-slo.jpg)
 
-На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency с фиксированными бакетами; вызов `/api/cpu` уходит далеко за objective 500 мс.
+На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency с фиксированными бакетами.
 
 ![CPU shortage у demo-nuxt](screenshots/nuxt-cpu.jpg)
 
-На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. HeatMap показывает распределение запросов по времени, статусам и длительности. Свободной фильтрации трасс по атрибутам нет: ось X задаёт `tsRange`, ось Y — `durRange`, статус — метка `err`. «Show error traces» фильтрует по `StatusCode='STATUS_CODE_ERROR'`, «Show latency SLO violations» — по `Duration >= SLO objective`, селектор `sources` переключает OpenTelemetry/eBPF. По выделенной области Coroot найдёт конкретные спаны; в сравнении подсветит замедлившиеся операции; по кастомным атрибутам — чем аномальные запросы отличаются от остальных. От аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
+
+Container CPU utilization: высокое потребление CPU у 1 контейнера
+Condition: потребление CPU контейнера > 80% его CPU limit
 
 ![Tracing demo-nuxt](screenshots/nuxt-tracing.jpg)
+
+На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. HeatMap показывает распределение запросов по времени, статусам и длительности. Свободной фильтрации трасс по атрибутам нет: ось X задаёт `tsRange`, ось Y — `durRange`, статус — метка `err`. «Show error traces» фильтрует по `StatusCode='STATUS_CODE_ERROR'`, «Show latency SLO violations» — по `Duration >= SLO objective`, селектор `sources` переключает OpenTelemetry/eBPF. По выделенной области Coroot найдёт конкретные спаны; в сравнении подсветит замедлившиеся операции; по кастомным атрибутам — чем аномальные запросы отличаются от остальных. От аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
 
 ![Флеймграф CPU demo-nuxt](screenshots/nuxt-profiling.jpg)
 
