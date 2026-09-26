@@ -371,6 +371,8 @@ Memory-профиль показывает устойчивый рост `alloc_
 
 ![Tracing demo-golang](screenshots/golang-tracing.jpg)
 
+![Tracing demo-golang](screenshots/tracing-demo-golang.jpg)
+
 ### Демо 4: Java
 
 - **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` в coroot-values.yaml. Java-агент для профилирования не нужен: node-agent сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API. (Java-агент в [apps/java/Dockerfile](apps/java/Dockerfile) — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
@@ -484,11 +486,25 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 
 Коллектор слушает OTLP/HTTP на `4318` в namespace `otel`. Приложения обращаются к нему по адресу `http://otel-collector.otel:4318/v1/traces`, а сам коллектор пересылает батчи в Coroot на внутренний сервис `coroot-coroot.coroot:8080`.
 
+![Tracing в Coroot](screenshots/tracing-overview.jpg)
+
 #### Что видно в Coroot
+
+При открытии приложения Coroot показывает **SLO** (Service Level Objectives) — целевые показатели надёжности сервиса. По умолчанию отслеживаются два SLO: **Availability** (99% запросов должны быть обслужены без ошибок) и **Latency** (99% запросов должны обслуживаться быстрее 500 мс). Coroot считает SLI по eBPF-метрикам на уровне приложения и показывает фактическое соблюдение объектива, латентность в виде гистограммы с фиксированными бакетами (5 мс — 10 с) и остаток error budget.
+
+![Обзор и SLO приложения demo-java](screenshots/java-overview.jpg)
 
 Инспекции подсветят рост потребления памяти (аллокации в `DemoJava.allocate`) и высокую утилизацию CPU; **shortage** в колонке **CPU** покажет ожидание процессора на `/cpu`. Lock-контеншены — в Lock-профиле и в `container_jvm_lock_contentions_total`.
 
+![CPU shortage у demo-java](screenshots/java-cpu.jpg)
+
+На вкладке **Profiling** async-profiler отдаёт сразу несколько типов профилей: **CPU** (почти всё время в `naiveFib`), **Memory** (рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`) и **Lock** (время ожидания монитора и число контеншенов на `synchronized`-блоке).
+
+![JVM-профиль demo-java](screenshots/java-jvm.jpg)
+
 На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). HeatMap и выделение области — как в Демо 1. От аномалии CPU — во флеймграф `naiveFib`, от роста alloc — в Memory-профиль, из медленного span'а — в логи и профили.
+
+![Флеймграф CPU demo-java](screenshots/java-profiling.jpg)
 
 ## Масштабирование и обновление
 
