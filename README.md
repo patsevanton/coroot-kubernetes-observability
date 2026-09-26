@@ -13,7 +13,7 @@ Coroot ставится в любой Kubernetes-кластер. В этой с�
 | Метрика | Coroot (Community Edition) | Grafana Pyroscope | Parca | Pixie | Perforator (Yandex) |
 |---------|--------|-------------------|-------|---------------------|---------------------|
 | Профилирование | eBPF CPU + Go (heap/pprof) + Java (async-profiler) | языковые SDK, Grafana Alloy, OTLP; eBPF через Alloy/OTel | eBPF + pprof | eBPF-автоинструментация k8s, CPU-профили | eBPF kernel + userspace, CPU, sPGO/AutoFDO |
-| Нужны ли изменения кода | Нет (eBPF + Go heap), для CPU/blocking/mutex — опционально pprof | Да — SDK/агент (eBPF только через Alloy/OTel) | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
+| Нужны ли изменения кода | Нет (eBPF CPU + Go heap), только для blocking/mutex/goroutine — опционально pprof | Да — SDK/агент (eBPF только через Alloy/OTel) | Нет (eBPF) | Нет (eBPF) | Нет (eBPF) |
 | Метрики + логи + трейсы | ✅ в одном UI | ❌ (только профили) | ❌ (только профили) | ⚠️ (eBPF-метрики, запросы и трейсы) | ❌ (только профили) |
 | Автодиагностика (инспекции) | ✅ 80%+ типовых проблем | ❌ | ❌ | ⚠️ (готовые PxL-скрипты) | ❌ |
 | SLO-алертинг | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -21,29 +21,18 @@ Coroot ставится в любой Kubernetes-кластер. В этой с�
 | Хранилище профилей | ClickHouse | S3-совместимое | object storage | локально в кластере (краткосрочное) | ClickHouse (метаданные профилей) + PostgreSQL (метаданные бинарей) + S3-совместимое (сырые профили) |
 | Self-hosted | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-В таблице — только свободные решения: Coroot Community Edition, Grafana Pyroscope, Parca, Pixie и Perforator. Дополнительно к уже рассмотренным выделяются два профилировщика с eBPF-сбором: [Pixie](https://github.com/pixie-io/pixie) — open-source eBPF-автоинструментация для Kubernetes, которая снимает метрики, запросы и CPU-профили без изменений в подах; [Perforator](https://github.com/yandex/perforator) от Yandex — production-ready continuous profiling для больших датацентров (десятки тысяч нод), вдохновлённый Google-Wide Profiling, с размоткой стека без frame pointers/дебаг-символов и генерацией sPGO-профилей для PGO-сборки.
+Два профилировщика с eBPF-сбором: [Pixie](https://github.com/pixie-io/pixie) — open-source eBPF-автоинструментация для Kubernetes (метрики, запросы и CPU-профили без изменений в подах); [Perforator](https://github.com/yandex/perforator) от Yandex — production-ready continuous profiling для больших датацентров (десятки тысяч нод), вдохновлённый Google-Wide Profiling, с размоткой стека без frame pointers и sPGO-профилями для PGO-сборки.
 
 Coroot не пытается быть «ещё одним pprof-интерфейсом» — профили здесь один из сигналов наравне с метриками, логами и трейсами, и все они связаны между собой: от аномалии на графике CPU — в флеймграф, от фрейма — в связанные логи и трейсы.
 
-Отличительные особенности Coroot:
-
-- **Zero-instrumentation** — eBPF снимает CPU-профили всех процессов на ноде без изменений в коде
-- **Языковые профилировщики** — Go (heap + pprof: CPU/blocking/mutex), Java (async-profiler: CPU/alloc/lock)
-- **Инспекции** — предустановленные проверки аудитируют каждое приложение и находят ~80% типовых проблем без настройки
-- **Просмотр в один клик** — флеймграф, сравнение с базовой линией, drill в логи и трейсы
-
 ### Два способа профилирования: eBPF и user-space
 
-Coroot собирает профили двумя способами, которые дополняют друг друга: eBPF покрывает CPU для всех процессов на ноде, а языковые профилировщики добирают память и блокировки для конкретных рантаймов.
+Coroot собирает профили двумя дополняющими способами: **eBPF** покрывает CPU всех процессов на ноде без изменений в коде, а **языковые профилировщики** добирают память и блокировки конкретных рантаймов. Оба механизма живут внутри агентов Coroot и обращаются к чужому процессу снаружи:
 
-- **eBPF-профилировщик** — `coroot-node-agent` (DaemonSet на каждой ноде) загружает eBPF-программы в ядро и цепляет их к CPU perf-событиям, снимая CPU-стектрейсы всех процессов без изменений в коде. Затем агент символизирует адреса, ассоциирует стек с контейнером/подом, обрезает незначимые фреймы (всё меньше 0.25% профиля, флаг `--profiles-prune-fraction`) и отправляет профиль в Coroot. Но это всегда только CPU.
-
-- **Языковые профилировщики** — это не плагин и не библиотека в коде приложения, а механизмы внутри агентов Coroot, которые обращаются к чужому процессу снаружи:
-
-  - **Go heap** — `coroot-node-agent` читает структуру `runtime.MemProfile` прямо из памяти процесса (`/proc/<pid>/mem`). В приложение ничего не подключается.
-  - **Go pprof** — `coroot-cluster-agent` скрейпит стандартный `/debug/pprof` (CPU/blocking/mutex), который Go-рантайм отдаёт из коробки; его лишь нужно экспортировать в приложении и пометить аннотациями.
-  - **Java** — `coroot-node-agent` находит HotSpot JVM и динамически подгружает нативную `libasync-profiler.so` через JVM Attach API (CPU/alloc/lock). Библиотека приходит с агентом, а не с приложением.
-  - **Python** — eBPF-инструментирование резолвит Python-фреймы через Pyroscope eBPF-профайлер (`github.com/grafana/pyroscope/ebpf`), который `coroot-node-agent` запускает с включённой Python-инструментацией (`PythonEnabled`).
+- **Go heap** — `coroot-node-agent` читает `runtime.MemProfile` из памяти процесса (`/proc/<pid>/mem`), в приложение ничего не подключается
+- **Go pprof** — `coroot-cluster-agent` скрейпит стандартный `/debug/pprof` (CPU/blocking/mutex), который нужно лишь экспортировать и пометить аннотациями
+- **Java** — `coroot-node-agent` находит HotSpot JVM и динамически подгружает `libasync-profiler.so` через JVM Attach API (CPU/alloc/lock)
+- **Python** — eBPF-инструментирование резолвит Python-фреймы через Pyroscope eBPF-профайлер, включённый в `coroot-node-agent`
 
 ## Предварительные требования
 
@@ -138,8 +127,8 @@ helm install coroot oci://ghcr.io/coroot/charts/coroot-ce \
 
 Helm-чарт `coroot-ce` рендерит Custom Resource `Coroot`, которым управляет оператор. Что здесь важно:
 
-- **Retention ограничен 1 часом** в трёх местах: TTL таблиц ClickHouse (`logsTTL`/`tracesTTL`/`profilesTTL`), метрический кэш (`cacheTTL`) и retention встроенного Prometheus (`prometheus.retention: "1h"`). TTL применяются при создании таблиц.
-- **Нюанс по Prometheus**: данные хранятся двухчасовыми блоками, а retention отсчитывается не от текущего момента, а от `maxTime` самого свежего закрытого блока (`--storage.tsdb.retention.time` сравнивается как `blocks[0].MaxTime - block.MaxTime >= retention`). Поэтому блок удаляется не «через 1 час после записи», а только когда поверх него закрывается следующий блок: итого блок живёт ~2 часа в head до отсечения на 2-часовой границе плюс ещё ~2 часа на диске. При `prometheus.retention: "1h"` фактический горизонт метрик лежит в диапазоне от ~2 до ~4 часов (ближе к 2 — сразу после отсечения блока, ближе к 4 — перед следующим), плюс Coroot держит рядом собственный метрический кэш (`cacheTTL: "1h"`).
+- **Retention ограничен 1 часом** в трёх местах: TTL таблиц ClickHouse (`logsTTL`/`tracesTTL`/`profilesTTL`), метрический кэш (`cacheTTL`) и retention встроенного Prometheus (`prometheus.retention: "1h"`).
+- **Нюанс по Prometheus**: данные хранятся двухчасовыми блоками, поэтому при `prometheus.retention: "1h"` фактический горизонт метрик лежит в диапазоне ~2–4 часа.
 
 ### Шаг 3. Проверяем
 
@@ -220,27 +209,25 @@ helm install otel-collector open-telemetry/opentelemetry-collector \
 
 Коллектор слушает OTLP/HTTP на `4318` в namespace `otel`. Приложения обращаются к нему по адресу `http://otel-collector.otel:4318/v1/traces`, а сам коллектор пересылает батчи в Coroot на внутренний сервис `coroot-coroot.coroot:8080`.
 
-Обзор Tracing с установленными 4 demo приложениями.
-
-В разделе трассировок пять вкладок:
+Обзор Tracing с установленными 4 demo приложениями. В разделе трассировок пять вкладок:
 
 ![OVERVIEW](screenshots/tracing-overview.jpg)
 
-**OVERVIEW** — показывает **HeatMap** — распределение запросов во времени с их статусами и длительностью. По тепловой карте сразу видно аномалии: рост числа запросов, всплески ошибок или запросы, которые стали выполняться дольше обычного. Выделив любую область на графике, можно посмотреть входящие в неё трейсы.
+**OVERVIEW** — **HeatMap** распределения запросов во времени со статусами и длительностью. По тепловой карте сразу видны аномалии; выделив область, можно посмотреть входящие в неё трейсы.
 
 ![TRACES](screenshots/tracing-demo-golang.jpg)
 
-**TRACES** — просмотр отдельных трейсов по выделенной области: полный путь запроса по сервисам и базам данных, спаны и их длительности. Это ручная проверка «следов» конкретного запроса.
+**TRACES** — просмотр отдельных трейсов по выделенной области: путь запроса по сервисам, спаны и их длительности.
 
-**ERROR CAUSES** — в отличие от ручного разбора трейсов, Coroot автоматически анализирует **все** затронутые запросы в выделенной области и находит именно те спаны, в которых возникли ошибки. Так за секунды выясняется, одного ли типа все ошибки или происходят разные сбои одновременно.
+**ERROR CAUSES** — автоматически анализирует **все** затронутые запросы в выделенной области и находит спаны с ошибками — одного ли типа все ошибки или происходят разные сбои одновременно.
 
 ![LATENCY EXPLORER](screenshots/latency-explorer.jpg)
 
-**LATENCY EXPLORER** — вместо ручного разбора медленных трейсов Coroot анализирует их все и автоматически сравнивает длительность операций с остальными запросами. Задержка визуализируется как latency-флеймграф: чем шире фрейм, тем больше времени занимает спан; в режиме сравнения операции, которые стали дольше, чем раньше, подсвечиваются красным.
+**LATENCY EXPLORER** — сравнивает длительность операций с остальными запросами; задержка визуализируется как latency-флеймграф, замедлившиеся операции подсвечиваются красным.
 
 ![COMPARE ATTRIBUTES](screenshots/compare-attributes.jpg)
 
-**COMPARE ATTRIBUTES** — сравнение атрибутов трасс внутри выделенной области с остальными запросами. Полезно, когда система ведёт себя иначе при обработке запросов с конкретными входными данными — например, от определённого клиента, браузера или с включённым feature flag. Coroot сам выявляет, какой атрибут отличает «аномальные» запросы, причём без какой-либо настройки — работает с любыми пользовательскими атрибутами.
+**COMPARE ATTRIBUTES** — сравнение атрибутов трасс внутри выделенной области с остальными запросами, полезно при разном поведении для конкретных клиентов, браузеров или feature flag.
 
 ## Часть 2. Четыре «сломанных» приложения
 
@@ -307,13 +294,9 @@ nuxt:
 
 ![CPU shortage у demo-nuxt](screenshots/nuxt-cpu.jpg)
 
-
-Container CPU utilization: высокое потребление CPU у 1 контейнера
-Condition: потребление CPU контейнера > 80% его CPU limit
-
 ![Tracing demo-nuxt](screenshots/nuxt-tracing.jpg)
 
-На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. HeatMap показывает распределение запросов по времени, статусам и длительности. Свободной фильтрации трасс по атрибутам нет: ось X задаёт `tsRange`, ось Y — `durRange`, статус — метка `err`. «Show error traces» фильтрует по `StatusCode='STATUS_CODE_ERROR'`, «Show latency SLO violations» — по `Duration >= SLO objective`, селектор `sources` переключает OpenTelemetry/eBPF. По выделенной области Coroot найдёт конкретные спаны; в сравнении подсветит замедлившиеся операции; по кастомным атрибутам — чем аномальные запросы отличаются от остальных. От аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
+На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. Из аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
 
 ![Флеймграф CPU demo-nuxt](screenshots/nuxt-profiling.jpg)
 
@@ -345,15 +328,7 @@ class Handler(BaseHTTPRequestHandler):
 CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metrics_exporter", "none", "--logs_exporter", "none", "python", "app.py"]
 ```
 
-Файл `chart/values.yaml` (фрагмент):
-
-```yaml
-python:
-  env:
-    OTEL_SERVICE_NAME: "demo-python"
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
-    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
-```
+Файл `chart/values.yaml` — тот же фрагмент, что для Nuxt, только `OTEL_SERVICE_NAME: "demo-python"`.
 
 #### Что видно в Coroot
 
@@ -363,13 +338,11 @@ python:
 
 ![CPU shortage у demo-python](screenshots/python-cpu.jpg)
 
-На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. HeatMap и выделение области — как в Шаге 1. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
-
-**Флеймграф CPU** — открываем приложение `demo-python` → вкладка **Profiling**. Агрегированный флеймграф за выбранный интервал покажет CPU в `naive_fib` (рекурсия с экспоненциальной сложностью) и в busy-loop с `math.sqrt`. То же для `demo-nuxt`, где благодаря perf-map виден именно `fib` в JS.
+На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
 
 ![Флеймграф CPU demo-python](screenshots/python-profiling.jpg)
 
-Режим **Comparison** подсветит красным функции, которые стали есть больше CPU относительно прошлого интервала — удобно ловить регрессии после релиза.
+Флеймграф **Profiling** за выбранный интервал покажет CPU в `naive_fib` и в busy-loop с `math.sqrt`; режим **Comparison** подсветит красным функции, которые стали есть больше CPU относительно прошлого интервала.
 
 ### Шаг 3. Golang
 
@@ -389,18 +362,15 @@ Go-приложение с тремя проблемами сразу:
 | mutex | ❌ | ❌ | ✅ `/debug/pprof/mutex` |
 | goroutine | ❌ | ❌ | ✅ `/debug/pprof/goroutine` |
 
-Ключевые правила:
+Что именно включать — зависит от того, какие профили нужны:
 
-- **CPU** — даётся и eBPF (универсально, без кода, все процессы на ноде), и pprof-скрейпом. eBPF снимает CPU «для всех языков», а pprof атрибутирует время точнее по продуктивным горутинам Go — для Go они пересекаются, но собираются разными агентами.
-- **heap** — дублируется: node-agent читает `runtime.MemProfile` из `/proc/<pid>/mem` (`Go Memory`), cluster-agent скрейпит `/debug/pprof/heap` (`Memory`). Данные одни и те же, подача разная — выбирайте один.
-- **blocking/mutex/goroutine** — только через pprof-скрейп: это внутренняя телеметрия Go-рантайма, eBPF её в принципе не видит. Доступны только при экспорте `/debug/pprof` и аннотациях пода; blocking/mutex дополнительно требуют `runtime.SetBlockProfileRate()` / `runtime.SetMutexProfileFraction()` в коде.
+| Нужны профили | Что делать | Изменения в коде |
+|---|---|---|
+| только heap | ничего: `Go Memory` собирает node-agent из коробки | ноль |
+| heap + CPU | тоже ничего: eBPF снимает CPU, node-agent — `Go Memory` | ноль |
+| blocking / mutex / goroutine | eBPF их не даёт — нужен pprof-скрейп (`/debug/pprof`), а `--go-heap-profiler=disabled` уберёт дублирующие `Go Memory` | `import _ "net/http/pprof"` + аннотации пода |
 
-Автоматический heap-профилинг `coroot-node-agent` управляется флагом `--go-heap-profiler` = `disabled`/`enabled`/`force`, а pprof-скрейп делает `coroot-cluster-agent`. Чтобы включить pprof-скрейп (CPU/blocking/mutex/goroutines), нужно экспортировать `/debug/pprof` и аннотировать под.
-
-Оба канала собирают heap из `runtime.MemProfile` Go-рантайма; различие не в данных, а в подаче — node-agent считает дельту за интервал (~60 с), pprof отдаёт кумулятив с момента старта. Во вкладке **Profiling** строки дублируются (`Go Memory (inuse_space)` vs `Memory (inuse_space)` и т.д.), поэтому оба для heap включать не нужно. Что оставить:
-
-- нужен только heap — достаточно `Go Memory` через node-agent (ноль изменений в коде, `profile-scrape` не требуется);
-- нужны ещё CPU/blocking/mutex/goroutines — включайте pprof-скрейп, а `--go-heap-profiler=disabled` уберёт дублирующие строки `Go Memory`.
+То есть для heap и CPU Go-приложение не требует ни правки кода, ни `profile-scrape` — оба канала работают извне (eBPF + чтение `/proc/<pid>/mem`). pprof-скрейп нужен только ради профилей, которых нет в eBPF: blocking, mutex и goroutine.
 
 ![Список типов профилей вкладки Profiling для demo-golang](screenshots/golang-profiling-types.jpg)
 
@@ -467,7 +437,7 @@ Memory-профиль показывает устойчивый рост `alloc_
 
 ### Шаг 4. Java
 
-- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` в coroot-values.yaml. Java-агент для профилирования не нужен: node-agent сам находит HotSpot JVM и подгружает async-profiler через JVM Attach API. (Java-агент в [apps/java/Dockerfile](apps/java/Dockerfile) — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
+- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` в `coroot-values.yaml` (см. Шаг 1). Java-агент для профилирования не нужен — `coroot-node-agent` сам находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и подгружает async-profiler через JVM Attach API. (Java-агент в [apps/java/Dockerfile](apps/java/Dockerfile) — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
 
 Java-приложение на встроенном `com.sun.net.httpserver` с тремя эндпоинтами:
 
@@ -475,18 +445,7 @@ Java-приложение на встроенном `com.sun.net.httpserver` с 
 - **`/alloc`** — фоновая аллокация массивов (видна в Memory-профиле как `alloc_space`/`alloc_objects`)
 - **`/lock`** — два потока намеренно конкурируют за один монитор (`synchronized` + `sleep`), создавая Lock-профиль
 
-Для Java-профилирования Coroot не требуется ни Java-агент, ни изменения в коде: `coroot-node-agent` находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и динамически подгружает `libasync-profiler.so` через JVM Attach API. Единственное, что нужно, — включить флаг на node-agent (это уже сделано в [coroot.tf](coroot.tf)).
-
-Файл `coroot-values.yaml` (фрагмент):
-
-```yaml
-nodeAgent:
-  env:
-    - name: ENABLE_JAVA_ASYNC_PROFILER
-      value: "true"
-```
-
-JVM-флаги для профилирования **не обязательны**, но желательны: async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath` на старте, поэтому часть JIT-скомпилированного до attach кода не имеет debug-информации в точках сэмплирования, из-за чего часть сэмплов во флеймграфе попадает в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами:
+JVM-флаги для профилирования **не обязательны**, но желательны. Async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath`, поэтому часть JIT-скомпилированного до attach кода не имеет debug-информации и попадает во флеймграфе в `[unknown]`. Чтобы минимизировать потери, приложение запускается с флагами:
 
 Файл `apps/java/Dockerfile` (фрагмент):
 
@@ -501,7 +460,7 @@ ENTRYPOINT ["java", \
   "-cp", "/app", "DemoJava"]
 ```
 
-`-XX:+UnlockDiagnosticVMOptions` — это флаг-«ключ»: он разблокирует диагностические (`Diagnostic`) опции JVM, которые по умолчанию скрыты и запрещены к использованию. Нужен он только для того, чтобы JVM приняла следующий флаг `-XX:+DebugNonSafepoints`. Без `UnlockDiagnosticVMOptions` JVM не применит `DebugNonSafepoints` (это тоже диагностическая опция) и профилировщик продолжит получать `[unknown]`. `-XX:+DebugNonSafepoints` заставляет JIT сохранять debug-информацию и в несейфпоинтах — без него инлайнируемые методы могут вообще не попадать в профиль. `-XX:+PreserveFramePointer` сохраняет регистр frame pointer, что дополнительно улучшает резолв нативных/вызывающих фреймов (полезно и для eBPF-профилировщика). Полностью убрать `[unknown]` всё равно нельзя: на горячих методах (в демо — `naiveFib`), скомпилированных до подключения агента, дебаг-инфо появляется лишь после перекомпиляции.
+`-XX:+UnlockDiagnosticVMOptions` разблокирует диагностические опции — без него JVM не примет `-XX:+DebugNonSafepoints`. `-XX:+DebugNonSafepoints` заставляет JIT сохранять debug-информацию и в несейфпоинтах, `-XX:+PreserveFramePointer` сохраняет frame pointer (улучшает резолв и для eBPF-профилировщика). Полностью убрать `[unknown]` всё равно нельзя: на горячих методах (`naiveFib`), скомпилированных до подключения агента, дебаг-инфо появится только после перекомпиляции.
 
 **Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: jar скачивается в образе и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
 
@@ -512,15 +471,7 @@ RUN wget -q -O /opentelemetry-javaagent.jar \
       https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar
 ```
 
-Файл `chart/values.yaml` (фрагмент):
-
-```yaml
-java:
-  env:
-    OTEL_SERVICE_NAME: "demo-java"
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://otel-collector.otel:4318/v1/traces"
-    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "http/protobuf"
-```
+Файл `chart/values.yaml` — тот же фрагмент, что для Nuxt, только `OTEL_SERVICE_NAME: "demo-java"`.
 
 Для `demo-java` Coroot показывает сразу несколько типов профилей из async-profiler:
 
@@ -542,7 +493,7 @@ java:
 
 ![JVM-профиль demo-java](screenshots/java-jvm.jpg)
 
-На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). HeatMap и выделение области — как в Шаге 1. От аномалии CPU — во флеймграф `naiveFib`, от роста alloc — в Memory-профиль, из медленного span'а — в логи и профили.
+На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). От аномалии CPU — во флеймграф `naiveFib`, от роста alloc — в Memory-профиль, из медленного span'а — в логи и профили.
 
 ![Флеймграф CPU demo-java](screenshots/java-profiling.jpg)
 
