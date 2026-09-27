@@ -496,7 +496,7 @@ RUN wget -q -O /opentelemetry-javaagent.jar \
 
 ![Обзор и SLO приложения demo-java](screenshots/java-overview.jpg)
 
-На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency; вызов `/cpu` с наивным `fib(35)` уходит далеко за objective 500 мс, а `/alloc` даёт рост потребления памяти.
+На overview-slo Availability SLO в статусе OK (доля успешных запросов ≥ 99%), а Latency SLO нарушен: error budget burn rate 65.9x в течение 1 часа, так как доля запросов быстрее 500 мс ниже 99% — вызов `/cpu` с наивным `fib(35)` уходит за objective 500 мс, а `/alloc` даёт рост потребления памяти.
 
 ![CPU shortage у demo-java](screenshots/java-cpu.jpg)
 
