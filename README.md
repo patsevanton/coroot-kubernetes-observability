@@ -297,14 +297,13 @@ nuxt:
 
 Инспекция CPU выводит две проверки: **Node CPU utilization** — `ok` (загрузка ноды ниже порога 80%), и **Container CPU utilization** — `high CPU utilization of 1 container`: контейнер `demo-nuxt` превышает 80% своего CPU-лимита.
 
-![Tracing demo-nuxt](screenshots/nuxt-tracing.jpg)
-
-На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. Из аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
-
 ![Флеймграф CPU demo-nuxt](screenshots/nuxt-profiling.jpg)
 
 Флеймграф показывает, что почти всё CPU-время (~100%) уходит в event loop Node.js: стек идёт через `uv__io_poll` → `uv__read` → `uv__stream_io`, затем через microtask-очередь попадает в Nitro/Nuxt. Далее профиль делится на двух потребителей CPU: ~33% — обработчик `/api/cpu` (`api/cpu.get.mjs`), где почти все сэмплы приходятся на рекурсивный `fib` (`api/cpu.get.mjs:924` — наивные числа Фибоначчи); остальное — обвязка Nitro (`nitro.mjs:1645`) и накладные расходы V8/libuv. Таким образом, узкое место — CPU-bound рекурсия `fib`, а не HTTP-цикл.
 
+![Tracing demo-nuxt](screenshots/nuxt-tracing.jpg)
+
+На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. Из аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
 
 ### Шаг 2. Python
 
@@ -338,7 +337,7 @@ CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metr
 
 ![Обзор и SLO приложения demo-python](screenshots/python-overview-slo.jpg)
 
-На overview-slo видно соблюдение двух SLO (Availability и Latency), остаток error budget и гистограмму latency; вызов `/cpu` с наивным `fib(30)` и busy-loop выходит за предел в 500 мс.
+На overview-slo Availability SLO в статусе OK (доля успешных запросов ≥ 99%), а Latency SLO нарушен: error budget burn rate 100.0x в течение 1 часа, так как доля запросов быстрее 500 мс ниже 99% — вызов `/cpu` с наивным `fib(30)` и busy-loop выходит за предел в 500 мс.
 
 ![CPU shortage у demo-python](screenshots/python-cpu.jpg)
 
@@ -406,7 +405,14 @@ exporter, err := otlptrace.New(ctx, otlptracehttp.NewClient())
 handler := otelhttp.NewHandler(http.DefaultServeMux, "http-server")
 ```
 
-Зависимости OpenTelemetry требуют Go **1.25+**.
+Привязка минимального Go к версии `opentelemetry-go`:
+
+| Версия `opentelemetry-go` | Минимальный Go |
+|---|---|
+| v1.38.0 | Go 1.23 |
+| v1.42.0 | Go 1.24 |
+| **v1.46.0** (используется в проекте) | **Go 1.25** |
+| v1.47.0+ | Go 1.26 |
 
 Файл `apps/golang/Dockerfile` (фрагмент):
 
