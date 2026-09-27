@@ -506,13 +506,19 @@ RUN wget -q -O /opentelemetry-javaagent.jar \
 
 ![CPU shortage у demo-java](screenshots/java-cpu.jpg)
 
-На вкладке **Profiling** async-profiler отдаёт сразу несколько типов профилей: **CPU** (почти всё время в `naiveFib`), **Memory** (рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`) и **Lock** (время ожидания монитора и число контеншенов на `synchronized`-блоке).
+Инспекция CPU выводит две проверки: **Node CPU utilization** — `ok` (загрузка ноды ниже порога 80%), и **Container CPU utilization** — `high CPU utilization of 1 container`: контейнер `demo-java` превышает 80% своего CPU-лимита.
 
 ![JVM-профиль demo-java](screenshots/java-jvm.jpg)
 
-На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). От аномалии CPU — во флеймграф `naiveFib`, от роста alloc — в Memory-профиль, из медленного span'а — в логи и профили.
+Инспекция JVM выводит две проверки: **JVM availability** — `ok` (число недоступных инстансов JVM не превышает 0), и **JVM safepoints** — `ok` (время остановки приложения на safepoint-операциях не превышает 50 мс).
+
+![Tracing demo-java](screenshots/java-tracing.jpg)
+
+На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). Например, видим что трейс с id cbd4e69b с запросом GET на ручку /alloc имел длительность 132820.6 ms.
 
 ![Флеймграф CPU demo-java](screenshots/java-profiling.jpg)
+
+На вкладке **Profiling** async-profiler отдаёт сразу несколько типов профилей: **CPU** (почти всё время в `naiveFib`), **Memory** (рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`) и **Lock** (время ожидания монитора и число контеншенов на `synchronized`-блоке).
 
 ## Масштабирование и обновление
 
