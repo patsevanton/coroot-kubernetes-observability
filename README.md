@@ -477,17 +477,6 @@ ENTRYPOINT ["java", \
 - `-XX:TieredStopAtLevel=1` оставляет только C1-компиляцию: простой машинный код легче маппится обратно в методы, чем агрессивно оптимизированный C2.
 - `-XX:CompileCommand=dontinline,DemoJava.naiveFib` запрещает инлайнить `naiveFib` — иначе метода не будет видно отдельным фреймом.
 
-**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: jar скачивается в образе и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
-
-Файл `apps/java/Dockerfile` (фрагмент):
-
-```dockerfile
-RUN wget -q -O /opentelemetry-javaagent.jar \
-      https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar
-```
-
-Файл `chart/values.yaml` — тот же фрагмент, что для Nuxt, только `OTEL_SERVICE_NAME: "demo-java"`.
-
 Для `demo-java` Coroot показывает сразу несколько типов профилей: async-profiler отдаёт CPU, память и блокировки, а приставка «Java» отличает их от CPU-профиля eBPF-профилировщика. На вкладке **Profiling** в капле выбора типа профиля шесть позиций:
 
 ![Список типов профилей вкладки Profiling для demo-java](screenshots/java-profiling-types.jpg)
@@ -509,6 +498,18 @@ RUN wget -q -O /opentelemetry-javaagent.jar \
 | Java CPU / Memory / Lock | включить `ENABLE_JAVA_ASYNC_PROFILER=true` в `coroot-values.yaml` — node-agent сам найдёт JVM и подгрузит async-profiler | не нужны; JVM-флаги (`PreserveFramePointer` и др.) опционально улучшают символизацию |
 
 То есть для всех типов профилей Java не требует правки кода: CPU снимает eBPF-профилировщик, а всё с префиксом «Java» — async-profiler, который node-agent динамически подгружает в HotSpot JVM. JVM-флаги из предыдущего абзаца не обязательны — они лишь минимизируют `[unknown]` и оставляют профиль «до точной строки кода».
+
+
+**Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: jar скачивается в образе и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
+
+Файл `apps/java/Dockerfile` (фрагмент):
+
+```dockerfile
+RUN wget -q -O /opentelemetry-javaagent.jar \
+      https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/latest/download/opentelemetry-javaagent.jar
+```
+
+Файл `chart/values.yaml` — тот же фрагмент, что для Nuxt, только `OTEL_SERVICE_NAME: "demo-java"`.
 
 #### Что видно в Coroot
 
