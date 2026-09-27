@@ -510,8 +510,6 @@ RUN wget -q -O /opentelemetry-javaagent.jar \
 
 То есть для всех типов профилей Java не требует правки кода: CPU снимает eBPF-профилировщик, а всё с префиксом «Java» — async-profiler, который node-agent динамически подгружает в HotSpot JVM. JVM-флаги из предыдущего абзаца не обязательны — они лишь минимизируют `[unknown]` и оставляют профиль «до точной строки кода».
 
-Рядом с профилями async-profiler экспортирует одноимённые метрики (`container_jvm_alloc_bytes_total`, `container_jvm_lock_contentions_total`, `container_jvm_profiling_status` и др.) — по ним удобно ловить аномалии на графике и проваливаться в флеймграф.
-
 #### Что видно в Coroot
 
 ![Обзор и SLO приложения demo-java](screenshots/java-overview.jpg)
