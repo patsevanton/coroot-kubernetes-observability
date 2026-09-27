@@ -342,6 +342,10 @@ CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metr
 
 ![CPU shortage у demo-python](screenshots/python-cpu.jpg)
 
+Инспекция CPU выводит две проверки: **Node CPU utilization** — `ok` (загрузка ноды ниже порога 80%), и **Container CPU utilization** — `high CPU utilization of 1 container`: контейнер `demo-python` превышает 80% своего CPU-лимита.
+
+![Tracing demo-python](screenshots/python-tracing.jpg)
+
 На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
 
 ![Флеймграф CPU demo-python](screenshots/python-profiling.jpg)
@@ -357,6 +361,8 @@ Go-приложение с тремя проблемами сразу:
 - **CPU-нагрузка** — эндпоинт `/cpu` с бесполезным циклом на 5 млн итераций
 
 Для Go Coroot собирает профили **по трём каналам**, которые частично пересекаются:
+
+![Список типов профилей вкладки Profiling для demo-golang](screenshots/golang-profiling-types.jpg)
 
 | Тип профиля | eBPF (node-agent) | Go heap-профайлер (node-agent, `/proc/<pid>/mem`) | pprof-скрейп (cluster-agent, `/debug/pprof`) |
 |---|---|---|---|
@@ -374,8 +380,6 @@ Go-приложение с тремя проблемами сразу:
 | blocking / mutex / goroutine | eBPF их не даёт — нужен pprof-скрейп (`/debug/pprof`), а `--go-heap-profiler=disabled` уберёт дублирующие `Go Memory` | `import _ "net/http/pprof"` + аннотации пода |
 
 То есть для heap и CPU Go-приложение не требует ни правки кода, ни `profile-scrape` — оба канала работают извне (eBPF + чтение `/proc/<pid>/mem`). pprof-скрейп нужен только ради профилей, которых нет в eBPF: blocking, mutex и goroutine.
-
-![Список типов профилей вкладки Profiling для demo-golang](screenshots/golang-profiling-types.jpg)
 
 Файл `chart/values.yaml` (фрагмент):
 
