@@ -343,13 +343,13 @@ CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metr
 
 Инспекция CPU выводит две проверки: **Node CPU utilization** — `ok` (загрузка ноды ниже порога 80%), и **Container CPU utilization** — `high CPU utilization of 1 container`: контейнер `demo-python` превышает 80% своего CPU-лимита.
 
-![Tracing demo-python](screenshots/python-tracing.jpg)
-
-На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
-
 ![Флеймграф CPU demo-python](screenshots/python-profiling.jpg)
 
 Флеймграф **Profiling** за выбранный интервал покажет CPU в `naive_fib` и в busy-loop с `math.sqrt`; режим **Comparison** подсветит красным функции, которые стали есть больше CPU относительно прошлого интервала.
+
+![Tracing demo-python](screenshots/python-tracing.jpg)
+
+На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
 
 ### Шаг 3. Golang
 
@@ -432,21 +432,19 @@ golang:
 
 Memory-профиль показывает устойчивый рост `alloc_space`: куча растёт на ~1 MiB/сек за счёт фонового `growLeak`. Флеймграф memory-профиля указывает точное место — `main.growLeak`, где происходит `append` в `leakBuf`.
 
-![Флеймграф memory-профиля demo-golang](screenshots/golang-profiling.jpg)
-
-Горутины-утечки видны косвенно: число горутин растёт (`/healthz` отдаёт `runtime.NumGoroutine()`), а Coroot связывает это с ростом потребления и деградацией SLO.
-
 #### Что видно в Coroot
 
 ![Обзор и SLO приложения demo-golang](screenshots/golang-overview-slo.jpg)
 
 На overview-slo видно, как рост памяти и утечка горутин деградируют соблюдение двух SLO (Availability и Latency); вызовы `/cpu` и `/leak` уходят за objective 500 мс.
 
-![CPU shortage у demo-golang](screenshots/golang-cpu.jpg)
+![Флеймграф memory-профиля demo-golang](screenshots/golang-profiling.jpg)
 
-На вкладке **Tracing** — server-span на каждый `/cpu` и `/leak` (`otelhttp.NewHandler`). HeatMap и выделение области — как в Шаге 1. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили, в том числе heap: `main.growLeak`.
+Горутины-утечки видны косвенно: число горутин растёт (`/healthz` отдаёт `runtime.NumGoroutine()`), а Coroot связывает это с ростом потребления и деградацией SLO.
 
 ![Tracing demo-golang](screenshots/golang-tracing.jpg)
+
+На вкладке **Tracing** — server-span на каждый `/cpu` и `/leak` (`otelhttp.NewHandler`). HeatMap и выделение области — как в Шаге 1. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили, в том числе heap: `main.growLeak`.
 
 ### Шаг 4. Java
 
