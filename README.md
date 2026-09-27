@@ -303,7 +303,7 @@ nuxt:
 
 ![Tracing demo-nuxt](screenshots/nuxt-tracing.jpg)
 
-На вкладке **Tracing** у `demo-nuxt` — server-span на каждый `/api/cpu` и вложенный span `fib`. Из аномалии CPU — во флеймграф (`fib` благодаря perf-map), из медленного span'а — в логи и профили.
+На вкладке **Tracing** у `demo-nuxt` — server-span на каждый запрос и вложенный span на вычисление. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили.
 
 ### Шаг 2. Python
 
@@ -349,7 +349,7 @@ CMD ["opentelemetry-instrument", "--traces_exporter", "otlp_proto_http", "--metr
 
 ![Tracing demo-python](screenshots/python-tracing.jpg)
 
-На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span `/cpu`. Из аномалии CPU — во флеймграф `naive_fib`, из медленного span'а — в логи и профили.
+На вкладке **Tracing** у `demo-python` — server-span от автоинструментации `http.server` и вложенный span на вычисление. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили.
 
 ### Шаг 3. Golang
 
@@ -444,11 +444,11 @@ Memory-профиль показывает устойчивый рост `alloc_
 
 ![Tracing demo-golang](screenshots/golang-tracing.jpg)
 
-На вкладке **Tracing** — server-span на каждый `/cpu` и `/leak` (`otelhttp.NewHandler`). HeatMap и выделение области — как в Шаге 1. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили, в том числе heap: `main.growLeak`.
+На вкладке **Tracing** — server-span на каждый запрос (`otelhttp.NewHandler`). HeatMap и выделение области — как в Шаге 1. Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили.
 
 ### Шаг 4. Java
 
-- **Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` в `coroot-values.yaml` (см. Шаг 1). Java-агент для профилирования не нужен — `coroot-node-agent` сам находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и подгружает async-profiler через JVM Attach API. (Java-агент в [apps/java/Dockerfile](apps/java/Dockerfile) — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
+**Java-профилирование** включается флагом `ENABLE_JAVA_ASYNC_PROFILER=true` в `coroot-values.yaml` (см. Шаг 1). Java-агент для профилирования не нужен — `coroot-node-agent` сам находит HotSpot JVM по `libjvm.so` в `/proc/<pid>/maps` и подгружает async-profiler через JVM Attach API. (Java-агент в [apps/java/Dockerfile](apps/java/Dockerfile) — это OpenTelemetry-инструментация для трейсов, к профилированию отношения не имеет.)
 
 Java-приложение на встроенном `com.sun.net.httpserver` с тремя эндпоинтами:
 
@@ -456,7 +456,7 @@ Java-приложение на встроенном `com.sun.net.httpserver` с 
 - **`/alloc`** — фоновая аллокация массивов (видна в Memory-профиле как `alloc_space`/`alloc_objects`)
 - **`/lock`** — два потока намеренно конкурируют за один монитор (`synchronized` + `sleep`), создавая Lock-профиль
 
-Профилирование работает и **без JVM-флагов** — async-profiler подгружается в JVM **динамически** (через JVM Attach API), а не через `-agentpath`. Но без них флеймграф деградирует: dynamical attach не гарантирует, что у уже скомпилированного JIT-кода есть подходящие символы и frame pointer, поэтому горячие сэмплы не резолвятся в имена методов и падают в `[unknown]` (а `naiveFib` может вообще исчезнуть как отдельный фрейм, будучи заинлайненным в `cpuBurn`). Флаги ниже минимизируют потери и оставляют профиль «до точной строки кода»:
+Профилирование работает и **без JVM-флагов** — async-profiler подгружается в JVM **динамически** (через JVM Attach API). Но без них флеймграф деградирует: dynamical attach не гарантирует, что у уже скомпилированного JIT-кода есть подходящие символы и frame pointer, поэтому горячие сэмплы не резолвятся в имена методов и падают в `[unknown]` (а `naiveFib` может вообще исчезнуть как отдельный фрейм, будучи заинлайненным в `cpuBurn`). Флаги ниже минимизируют потери и оставляют профиль «до точной строки кода»:
 
 Файл `apps/java/Dockerfile` (фрагмент):
 
@@ -477,8 +477,6 @@ ENTRYPOINT ["java", \
 - `-XX:TieredStopAtLevel=1` оставляет только C1-компиляцию: простой машинный код легче маппится обратно в методы, чем агрессивно оптимизированный C2.
 - `-XX:CompileCommand=dontinline,DemoJava.naiveFib` запрещает инлайнить `naiveFib` — иначе метода не будет видно отдельным фреймом.
 
-К трейсам эти флаги отношения не имеют — спаны генерирует OpenTelemetry Java-агент (`-javaagent`). Полностью убрать `[unknown]` всё равно нельзя: на горячих методах (`naiveFib`), скомпилированных до подключения агента, debug-инфо появится только после перекомпиляции.
-
 **Трейсы** — автоматическая инструментация через OpenTelemetry Java-агент: jar скачивается в образе и подключается флагом `-javaagent`, так что менять код не нужно — спаны HTTP-запросов генерируются автоматически и уходят в OpenTelemetry Collector через OTLP.
 
 Файл `apps/java/Dockerfile` (фрагмент):
@@ -490,11 +488,27 @@ RUN wget -q -O /opentelemetry-javaagent.jar \
 
 Файл `chart/values.yaml` — тот же фрагмент, что для Nuxt, только `OTEL_SERVICE_NAME: "demo-java"`.
 
-Для `demo-java` Coroot показывает сразу несколько типов профилей из async-profiler:
+Для `demo-java` Coroot показывает сразу несколько типов профилей: async-profiler отдаёт CPU, память и блокировки, а приставка «Java» отличает их от CPU-профиля eBPF-профилировщика. На вкладке **Profiling** в капле выбора типа профиля шесть позиций:
 
-- **CPU** — почти всё время в `naiveFib` (рекурсия с экспоненциальной сложностью), как и у Python/Node.js, но с нативными Java-фреймами
-- **Memory** — рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`
-- **Lock** — время ожидания монитора (`delay`) и число контеншенов (`contentions`) на `synchronized`-блоке
+![Список типов профилей вкладки Profiling для demo-java](screenshots/java-profiling-types.jpg)
+
+| Тип профиля | eBPF (node-agent) | async-profiler (node-agent, JVM Attach API) |
+|---|---|---|
+| CPU (eBPF) | ✅ все процессы, любой язык | ❌ |
+| Java CPU | ❌ | ✅ событие `cpu` |
+| Java Lock (contentions) | ❌ | ✅ событие `lock` (число контеншенов монитора) |
+| Java Lock (delay) | ❌ | ✅ событие `lock` (время ожидания монитора) |
+| Java Memory (alloc_objects) | ❌ | ✅ событие `alloc` (число объектов) |
+| Java Memory (alloc_space) | ❌ | ✅ событие `alloc` (байты) |
+
+Что именно включать — зависит от того, какие профили нужны:
+
+| Нужны профили | Что делать | Изменения в коде |
+|---|---|---|
+| CPU (eBPF) | ничего: eBPF-профилировщик снимает CPU всех процессов из коробки | не нужны |
+| Java CPU / Memory / Lock | включить `ENABLE_JAVA_ASYNC_PROFILER=true` в `coroot-values.yaml` — node-agent сам найдёт JVM и подгрузит async-profiler | не нужны; JVM-флаги (`PreserveFramePointer` и др.) опционально улучшают символизацию |
+
+То есть для всех типов профилей Java не требует правки кода: CPU снимает eBPF-профилировщик, а всё с префиксом «Java» — async-profiler, который node-agent динамически подгружает в HotSpot JVM. JVM-флаги из предыдущего абзаца не обязательны — они лишь минимизируют `[unknown]` и оставляют профиль «до точной строки кода».
 
 Рядом с профилями async-profiler экспортирует одноимённые метрики (`container_jvm_alloc_bytes_total`, `container_jvm_lock_contentions_total`, `container_jvm_profiling_status` и др.) — по ним удобно ловить аномалии на графике и проваливаться в флеймграф.
 
@@ -514,9 +528,19 @@ RUN wget -q -O /opentelemetry-javaagent.jar \
 
 ![Tracing demo-java](screenshots/java-tracing.jpg)
 
-На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). Например, видим что трейс с id cbd4e69b с запросом GET на ручку /alloc имел длительность 132820.6 ms.
+На вкладке **Tracing** — server-span на каждый запрос (OTel Java-агент, без изменений кода). Из аномалии CPU — во флеймграф, из медленного span'а — в логи и профили.
 
-![Флеймграф CPU demo-java](screenshots/java-profiling.jpg)
+![Флеймграф CPU (eBPF) demo-java](screenshots/java-tracing-CPU-eBPF.jpg)
+
+**CPU (eBPF)** — нативный CPU-профиль с eBPF-профайлера поверх всех процессов ноды: почти всё время уходит в `naiveFib` (рекурсия с экспоненциальной сложностью), как и у Python/Node.js.
+
+![Флеймграф Java Lock (contentions) demo-java](screenshots/java-tracing-Java-Lock-contentions.jpg)
+
+**Java Lock (contentions)** — число контеншенов монитора: два потока конкурируют за один `synchronized`-блок на эндпоинте `/lock`.
+
+![Флеймграф Java Memory (alloc_objects) demo-java](screenshots/java-tracing-Java-Memory-alloc_objects.jpg)
+
+**Java Memory (alloc_objects)** — рост числа аллоцированных объектов по стеку аллокаций в `DemoJava.allocate` (эндпоинт `/alloc`). Парный профиль `Java Memory (alloc_space)` показывает тот же стек в байтах.
 
 На вкладке **Profiling** async-profiler отдаёт сразу несколько типов профилей: **CPU** (почти всё время в `naiveFib`), **Memory** (рост `alloc_space`/`alloc_objects` по стеку аллокаций в `DemoJava.allocate`) и **Lock** (время ожидания монитора и число контеншенов на `synchronized`-блоке).
 
